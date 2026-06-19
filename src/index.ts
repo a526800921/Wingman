@@ -79,7 +79,7 @@ const SUMMARIZE_FILE_OUTPUT_SCHEMA = {
 const SUMMARIZE_FILE_TOOL_DEFINITION = {
   name: "aux_summarize_file",
   description:
-    "摘要源码文件或文档文件。结果是辅助性、非权威的——Claude Code 在编辑/执行前必须回查原文。",
+    "摘要源码文件或文档文件。适合 >50 行的大文件快速了解结构。结果是辅助性、非权威的——Claude Code 在编辑/执行前必须回查原文。小文件请直接阅读。",
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -130,7 +130,7 @@ const COMPRESS_TEXT_OUTPUT_SCHEMA = {
 const COMPRESS_TEXT_TOOL_DEFINITION = {
   name: "aux_compress_text",
   description:
-    "把长文本压缩成结构化上下文。结果是辅助性、非权威的——Claude Code 在决策前必须回查原文。",
+    "把长文本压缩成结构化上下文。适合日志、错误栈、长文档。结果是辅助性、非权威的——Claude Code 在决策前必须回查原文。",
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -207,7 +207,7 @@ const REVIEW_DIFF_OUTPUT_SCHEMA = {
 const REVIEW_DIFF_TOOL_DEFINITION = {
   name: "aux_review_diff",
   description:
-    "对 unified diff 做便宜的第一轮 review。结果是辅助性、非权威的——Claude Code 仍负责最终 review。",
+    "对 unified diff 做第一轮风险扫描。适合提交前快速扫查，不适合最终 review 决策或安全审计。结果是辅助性、非权威的——Claude Code 仍负责最终 review。",
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
