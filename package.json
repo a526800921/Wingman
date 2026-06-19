@@ -1,0 +1,25 @@
+{
+  "name": "aux-model-mcp",
+  "version": "0.1.0",
+  "description": "辅助模型 MCP server — 为 Claude Code 提供摘要、压缩和 diff 初筛工具",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "smoke": "node --import tsx --test test/smoke.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "~1.8.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
