@@ -1,16 +1,23 @@
 # Wingman
 
-Claude Code 的僚机 MCP server——负责侦察、摘要、压缩和 diff 初筛。结果非权威，主 agent 做最终决策。
+Claude Code 的僚机 MCP server。像僚机飞在侧翼负责侦察和提醒——做摘要、压缩和 diff 初筛，确保不遗漏明显检查项。结果非权威，主 agent 做最终决策。
 
-Wingman 不替代你的判断——它是飞在你侧翼的僚机，负责侦察和提醒，确保不遗漏明显检查项。所有输出都是**辅助性、非权威的**。
+## 定位
+
+```
+主模型 = 资深工程师做 code review，能看深层设计和架构问题
+Wingman = junior 拿着 checklist 逐项打勾——"你确认了 X 吗？有没有漏 Y？"
+```
+
+不替代你的判断，而是确保你的判断路径上没有遗漏明显的检查项。
 
 ## 工具
 
 | 工具 | 用途 |
 |------|------|
-| `aux_summarize_file` | 摘要源码文件或文档文件 |
-| `aux_compress_text` | 压缩日志、命令输出、长文本 |
-| `aux_review_diff` | 对 unified diff 做第一轮风险扫描 |
+| `aux_summarize_file` | 摘要源码/文档/测试文件。自动识别文件类型，按类型输出不同结构 |
+| `aux_compress_text` | 压缩日志、错误栈、长文档。适合 >1000 字符的长文本 |
+| `aux_review_diff` | 对 unified diff 做提交前 checklist 式审查。像 junior 逐项打勾，确保不遗漏检查项 |
 
 ## 使用场景
 
@@ -18,32 +25,29 @@ Wingman 不替代你的判断——它是飞在你侧翼的僚机，负责侦察
 
 | 场景 | 工具 |
 |------|------|
-| 长日志 / 错误栈快速定位 | `aux_compress_text` |
-| 大 diff 提交前扫描 | `aux_review_diff` |
+| 长日志 / 错误栈快速定位 | `aux_compress_text` + `focus` |
+| 大 diff 提交前 checklist 式扫描 | `aux_review_diff` |
+| 测试文件提取 test_cases 和 covered_behaviors | `aux_summarize_file`（测试文件） |
 | 不熟悉的大文件快速了解结构 | `aux_summarize_file` |
-| 多视角审视同一改动（切换 focus） | `aux_review_diff` + 不同 `focus` |
-| 长文档按关注点过滤 | `aux_compress_text` + `focus` |
-| 代码文件提取核心符号 | `aux_summarize_file`（源码文件） |
-| Markdown / 文档提取段落结构 | `aux_summarize_file`（文档文件） |
-| 测试文件提取测试用例概览 | `aux_summarize_file`（测试文件） |
+| 多视角审视同一改动 | `aux_review_diff` + 不同 `focus` |
 
 ### ❌ 不推荐场景
 
 | 场景 | 原因 |
 |------|------|
 | 小文件 < 50 行 | 直接读更高效 |
-| 最终 review 决策 | 辅助模型输出非权威，必须回查原文 |
+| compress 短文本 < 1000 字符 | 压缩产生不了边际收益 |
+| 最终 review 决策 | 结果非权威，有 30% 误报率 |
 | 精确符号依赖的重构 | 符号提取可能不完整 |
-| 安全审计 | 辅助模型不可信，不能代替人工审查 |
-| 跨文件调用链分析 | 不在 v1 范围内 |
+| 安全审计 | 辅助模型不可信 |
 
 ## 安全说明
 
 - 所有工具的 `openWorldHint` annotation 表示输出可能不完整。
-- 输出中包含 `is_authoritative: false` 和 `must_verify_in_source: true` 字段。
+- 输出中 `is_authoritative` 永远为 `false`，`must_verify_in_source` 永远为 `true`。
 - Claude Code 在编辑、执行 shell 命令、删除文件或做架构决策前**必须**直接回查原文。
 - 文件访问限制在 `AUX_WORKSPACE_ROOT` 目录内，拒绝路径穿越。
-- 辅助模型的 prompt injection 有多层防护（内容分隔符、stateless 调用、JSON-only 约束、schema 校验）。
+- prompt injection 多层防护：内容分隔符 + FOCUS_DATA 独立包裹 + stateless 调用 + JSON-only 约束 + schema 校验。
 
 ## 安装
 
@@ -57,33 +61,31 @@ npm run build
 
 ### 1. 编辑 `.env`
 
-项目根目录已有 `.env` 文件（已通过 `.gitignore` 排除），修改其中的 key 和默认值：
-
 ```env
 AUX_MODEL_BASE_URL=https://api.deepseek.com/v1
 AUX_MODEL_NAME=deepseek-v4-flash
 AUX_MODEL_TIMEOUT_MS=30000
 AUX_MODEL_ALLOWED_HOSTS=api.deepseek.com
+AUX_LOG_FILE=E:\work\mcp-local\.aux-model.log
 AUX_MODEL_API_KEY=你的key
 ```
 
-`AUX_WORKSPACE_ROOT` 不需要设置——MCP server 会自动取 Claude Code 当前所在的项目目录。
-
-### 2. 注册到 Claude Code 项目
-
-在目标项目目录中运行：
+### 2. 注册到 Claude Code
 
 ```powershell
+# 项目级（仅当前项目可用）
 claude mcp add -s project wingman -- node E:\work\mcp-local\dist\index.js
+
+# 全局（所有项目可用）
+claude mcp add -s user wingman -- node E:\work\mcp-local\dist\index.js
 ```
 
-> 所有配置已在 `.env` 中，不需要 `-e` 传参。**不要**通过 `-e` 把 API key 写进 `.mcp.json`。
+`AUX_WORKSPACE_ROOT` 不需要设置——自动取当前项目目录。
 
 ### 3. 验证
 
 ```powershell
 claude mcp list
-claude mcp get aux-model
 ```
 
 ## 环境变量
@@ -93,13 +95,25 @@ claude mcp get aux-model
 | `AUX_MODEL_API_KEY` | 是* | — | API key（不写入 .mcp.json） |
 | `AUX_MODEL_BASE_URL` | 否 | `https://api.deepseek.com/v1` | OpenAI-compatible API 地址 |
 | `AUX_MODEL_NAME` | 否 | `deepseek-v4-flash` | 模型名称 |
+| `AUX_MODEL_PROVIDER` | 否 | `remote` | 模型来源（remote / local） |
 | `AUX_MODEL_TIMEOUT_MS` | 否 | `30000` | 请求超时（毫秒） |
 | `AUX_MODEL_ALLOWED_HOSTS` | 否 | — | 允许的 API host（逗号分隔） |
-| `AUX_WORKSPACE_ROOT` | 否 | MCP server 启动目录 | 文件访问根目录 |
+| `AUX_WORKSPACE_ROOT` | 否 | 当前目录 | 文件访问根目录 |
 | `AUX_ALLOW_INSECURE_LOCAL_HTTP` | 否 | `false` | 允许本地 http（仅 loopback） |
 | `AUX_LOG_LEVEL` | 否 | `info` | 日志级别（debug/info/warn/error） |
+| `AUX_LOG_FILE` | 否 | `.aux-model.log` | 日志文件路径，设 `off` 禁用 |
 
 \* 不配置 API key 时，所有工具自动使用**启发式 fallback**，仍然可用。
+
+## 日志
+
+所有日志写入 stderr + 本地文件。默认文件为当前项目下的 `.aux-model.log`，可通过 `AUX_LOG_FILE` 自定义。每条日志含 trace ID 和耗时：
+
+```
+[WINGMAN][INFO][...] [a1b2c3d4] summarize_file start {"path":"src/foo.ts"}
+[WINGMAN][INFO][...] [a1b2c3d4] chat request completed {"usage":{"total_tokens":1905}}
+[WINGMAN][INFO][...] [a1b2c3d4] summarize_file done — 7985ms
+```
 
 ## 开发
 
@@ -107,9 +121,11 @@ claude mcp get aux-model
 npm install
 npm run build        # tsc 编译
 npm run dev          # tsx 直接运行
-npm test             # 运行测试
-npm run smoke        # 运行冒烟测试（不依赖 API key）
+npm test             # 运行测试（53 条）
+npm run smoke        # 冒烟测试（不依赖 API key）
 ```
+
+覆盖率：78.55% 行覆盖，安全关键路径（workspace/schema/fallback）>90%。
 
 ## 项目结构
 
@@ -117,13 +133,13 @@ npm run smoke        # 运行冒烟测试（不依赖 API key）
 src/
 ├── index.ts              # MCP server 入口
 ├── config.ts             # 环境变量读取
-├── chat-client.ts        # OpenAI-compatible HTTP client
-├── workspace.ts          # 路径安全解析
+├── chat-client.ts        # OpenAI-compatible HTTP client（HTTPS/SSRF/超时/重试）
+├── workspace.ts          # 路径安全解析（8 层 Windows 加固）
 ├── schema.ts             # 输入/输出 Zod schema
-├── prompts.ts            # Stateless prompt 构造
-├── logger.ts             # stderr logger
+├── prompts.ts            # Stateless prompt 构造 + 反注入
+├── logger.ts             # stderr + 文件日志（trace ID + 耗时）
 ├── fallback/
-│   ├── summarize-file.ts # 启发式文件摘要
+│   ├── summarize-file.ts # 启发式文件摘要（按文件类型输出不同结构）
 │   ├── compress-text.ts  # 启发式文本压缩
 │   └── review-diff.ts    # 启发式 diff review
 └── tools/
