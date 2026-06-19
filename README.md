@@ -1,8 +1,8 @@
-# aux-model MCP Server
+# Wingman
 
-供 Claude Code 使用的项目级 MCP server，提供辅助模型工具用于**摘要**、**压缩上下文**和 **diff 初筛**。
+Claude Code 的僚机 MCP server——负责侦察、摘要、压缩和 diff 初筛。结果非权威，主 agent 做最终决策。
 
-Claude Code 仍然是主 agent，负责最终判断、规划、编辑和执行。本 MCP server 的输出是**辅助性、非权威的**。
+Wingman 不替代你的判断——它是飞在你侧翼的僚机，负责侦察和提醒，确保不遗漏明显检查项。所有输出都是**辅助性、非权威的**。
 
 ## 工具
 
@@ -74,7 +74,7 @@ AUX_MODEL_API_KEY=你的key
 在目标项目目录中运行：
 
 ```powershell
-claude mcp add -s project aux-model -- node E:\work\mcp-local\dist\index.js
+claude mcp add -s project wingman -- node E:\work\mcp-local\dist\index.js
 ```
 
 > 所有配置已在 `.env` 中，不需要 `-e` 传参。**不要**通过 `-e` 把 API key 写进 `.mcp.json`。

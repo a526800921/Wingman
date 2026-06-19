@@ -55,7 +55,7 @@ function log(level: LogLevel, msg: string, data?: unknown): void {
   if (levelRank(level) < levelRank(MIN_LEVEL)) return;
 
   const ts = new Date().toISOString();
-  const line = `[AUX_MODEL][${level.toUpperCase()}][${ts}] ${msg}`;
+  const line = `[WINGMAN][${level.toUpperCase()}][${ts}] ${msg}`;
   process.stderr.write(line + "\n");
   writeToFile(line);
 
@@ -64,7 +64,7 @@ function log(level: LogLevel, msg: string, data?: unknown): void {
       typeof data === "string"
         ? data.slice(0, 500)
         : safeStringify(data).slice(0, 2000);
-    const dataLine = `[AUX_MODEL][${level.toUpperCase()}] ${safe}`;
+    const dataLine = `[WINGMAN][${level.toUpperCase()}] ${safe}`;
     process.stderr.write(dataLine + "\n");
     writeToFile(dataLine);
   }

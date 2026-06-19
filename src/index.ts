@@ -18,7 +18,7 @@ import { handleSummarizeFile } from "./tools/summarize-file.js";
 import { handleCompressText } from "./tools/compress-text.js";
 import { handleReviewDiff } from "./tools/review-diff.js";
 
-const SERVER_NAME = "aux-model";
+const SERVER_NAME = "wingman";
 const SERVER_VERSION = "0.1.0";
 
 // --- Tool definitions (inputSchema for tools/list) ---
