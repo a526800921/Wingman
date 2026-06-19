@@ -26,7 +26,7 @@ const SERVER_VERSION = "0.1.0";
 const SUMMARIZE_FILE_OUTPUT_SCHEMA = {
   type: "object" as const,
   properties: {
-    summary: { type: "string", description: "Natural-language overview of the file" },
+    summary: { type: "string", description: "文件概述。非权威，不可直接作为决策依据。" },
     important_symbols: {
       type: "array",
       items: {
@@ -61,15 +61,15 @@ const SUMMARIZE_FILE_OUTPUT_SCHEMA = {
         },
       },
     },
-    must_verify_in_source: { type: "boolean" },
-    is_authoritative: { type: "boolean", const: false },
+    must_verify_in_source: { type: "boolean", description: "始终为 true。编辑/执行前必须直接阅读原文验证。" },
+    is_authoritative: { type: "boolean", const: false, description: "始终为 false。此结果不可作为最终决策依据。" },
     _meta: {
       type: "object",
       properties: {
-        model: { type: "string" },
+        model: { type: "string", description: "生成结果的模型名称，heuristic 表示无需模型。" },
         tokens_used: { type: "integer" },
-        input_truncated: { type: "boolean" },
-        fallback_used: { type: "boolean" },
+        input_truncated: { type: "boolean", description: "true 表示输入被截断，结论可能不完整，需更谨慎对待。" },
+        fallback_used: { type: "boolean", description: "true 表示模型不可用，使用了启发式方法，结论置信度较低。" },
       },
     },
   },
@@ -79,7 +79,7 @@ const SUMMARIZE_FILE_OUTPUT_SCHEMA = {
 const SUMMARIZE_FILE_TOOL_DEFINITION = {
   name: "aux_summarize_file",
   description:
-    "摘要源码文件或文档文件。适合 >50 行的大文件快速了解结构。结果是辅助性、非权威的——Claude Code 在编辑/执行前必须回查原文。小文件请直接阅读。",
+    "摘要源码文件或文档文件。适合 >50 行的大文件快速了解结构。结果非权威——编辑/执行前必须回查原文件。输出中 must_verify_in_source 永远为 true，is_authoritative 永远为 false。若 _meta.input_truncated 为 true 表示文件被截断，结论可能不完整。小文件请直接阅读。",
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -94,7 +94,7 @@ const SUMMARIZE_FILE_TOOL_DEFINITION = {
       },
       focus: {
         type: "string",
-        description: "可选，关注点或问题。",
+        description: "可选，关注点或问题，引导模型侧重分析某个方面。例如 'security-relevant code', 'error handling', 'exports only'。",
       },
       max_chars: {
         type: "integer",
@@ -112,15 +112,15 @@ const COMPRESS_TEXT_OUTPUT_SCHEMA = {
     summary: { type: "string" },
     key_facts: { type: "array", items: { type: "string" } },
     discarded_or_low_confidence: { type: "array", items: { type: "string" } },
-    must_verify_in_source: { type: "boolean" },
-    is_authoritative: { type: "boolean", const: false },
+    must_verify_in_source: { type: "boolean", description: "始终为 true。编辑/执行前必须直接阅读原文验证。" },
+    is_authoritative: { type: "boolean", const: false, description: "始终为 false。此结果不可作为最终决策依据。" },
     _meta: {
       type: "object",
       properties: {
-        model: { type: "string" },
+        model: { type: "string", description: "生成结果的模型名称，heuristic 表示无需模型。" },
         tokens_used: { type: "integer" },
-        input_truncated: { type: "boolean" },
-        fallback_used: { type: "boolean" },
+        input_truncated: { type: "boolean", description: "true 表示输入被截断，结论可能不完整，需更谨慎对待。" },
+        fallback_used: { type: "boolean", description: "true 表示模型不可用，使用了启发式方法，结论置信度较低。" },
       },
     },
   },
@@ -149,7 +149,7 @@ const COMPRESS_TEXT_TOOL_DEFINITION = {
       },
       focus: {
         type: "string",
-        description: "可选，关注点或问题。",
+        description: "可选，关注点或问题，引导模型侧重保留某类信息。例如 'errors only', 'performance metrics', 'API endpoints'。",
       },
       max_chars: {
         type: "integer",
@@ -202,12 +202,13 @@ const REVIEW_DIFF_OUTPUT_SCHEMA = {
     },
   },
   required: ["change_summary", "is_authoritative", "_meta"],
+  // _meta fields described above, same semantics
 };
 
 const REVIEW_DIFF_TOOL_DEFINITION = {
   name: "aux_review_diff",
   description:
-    "对 unified diff 做第一轮风险扫描。适合提交前快速扫查，不适合最终 review 决策或安全审计。结果是辅助性、非权威的——Claude Code 仍负责最终 review。",
+    "对 unified diff 做第一轮风险扫描。适合提交前快速扫查，不适合最终 review 决策或安全审计。每条 risk 含 evidence 和 confidence，uncertainties 列出不确定处。结果非权威——Claude Code 仍负责最终 review。",
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -222,7 +223,7 @@ const REVIEW_DIFF_TOOL_DEFINITION = {
       },
       focus: {
         type: "string",
-        description: "可选，review 关注点，例如 'security', 'performance'。",
+        description: "可选，review 关注点，切换审查视角。例如 'security'（查注入/泄露）、'performance'（查阻塞/内存）、'breaking-changes'（查 API 兼容性）。",
       },
       max_chars: {
         type: "integer",
