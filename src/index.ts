@@ -13,7 +13,7 @@ import {
   type CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { hasModelConfig, loadConfig, loadConfigFallback } from "./config.js";
-import { logger } from "./logger.js";
+import { logger, getLogFilePath } from "./logger.js";
 import { handleSummarizeFile } from "./tools/summarize-file.js";
 import { handleCompressText } from "./tools/compress-text.js";
 import { handleReviewDiff } from "./tools/review-diff.js";
@@ -284,12 +284,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  const logPath = getLogFilePath();
   logger.info(`${SERVER_NAME} v${SERVER_VERSION} started`);
   logger.info(
     hasModelConfig()
       ? "model mode — API calls enabled"
       : "fallback mode — heuristic only (no API key configured)",
   );
+  if (logPath) {
+    logger.info(`log file: ${logPath}`);
+  }
+
+  // Graceful shutdown logging
+  const shutdown = () => {
+    logger.info(`${SERVER_NAME} stopping`);
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 main().catch((err) => {
