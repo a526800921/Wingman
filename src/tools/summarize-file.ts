@@ -154,6 +154,10 @@ export async function handleSummarizeFile(
 
   // ---- Step 4-5: model-based or fallback summarization ---------------------
 
+  const provider = isFullConfig(config)
+    ? (config as AppConfig).modelProvider
+    : process.env.AUX_MODEL_PROVIDER ?? "remote";
+
   const modelAvailable =
     isFullConfig(config) &&
     hasModelConfig() &&
@@ -169,6 +173,7 @@ export async function handleSummarizeFile(
       validatedInput.focus,
       maxChars,
       inputTruncated,
+      provider,
     );
   } else {
     log.info("summarize_file: model not available, using fallback", {
@@ -179,6 +184,7 @@ export async function handleSummarizeFile(
       validatedInput.path,
       maxChars,
       inputTruncated,
+      provider,
     );
   }
 
@@ -197,6 +203,7 @@ async function tryModelSummarization(
   focus: string | undefined,
   maxChars: number,
   inputTruncated: boolean,
+  provider: string,
 ): Promise<SummarizeFileOutput> {
   const client = new ChatClient(config);
 
@@ -218,13 +225,14 @@ async function tryModelSummarization(
       log.warn(
         "summarize_file: model returned non-JSON, falling back to heuristic",
       );
-      return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated);
+      return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated, provider);
     }
 
     // Step 5f: attach _meta (model prompt does not include _meta)
     const outputWithMeta = {
       ...(parsed as Record<string, unknown>),
       _meta: {
+        provider,
         model: config.modelName,
         input_truncated: inputTruncated,
         fallback_used: false,
@@ -238,7 +246,7 @@ async function tryModelSummarization(
         "summarize_file: model output failed schema validation, falling back to heuristic",
         { error: outputValidation.error },
       );
-      return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated);
+      return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated, provider);
     }
 
     log.info("summarize_file: model summarization succeeded", {
@@ -261,7 +269,7 @@ async function tryModelSummarization(
       { error: message },
     );
 
-    return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated);
+    return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated, provider);
   }
 }
 
@@ -280,6 +288,7 @@ function buildFallbackResult(
   relativePath: string,
   maxChars: number,
   inputTruncated: boolean,
+  provider: string,
 ): SummarizeFileOutput {
   // If we were already in the fallback path (model unavailable), the
   // relativePath is the original user path and can be used directly.
@@ -309,6 +318,7 @@ function buildFallbackResult(
       must_verify_in_source: true,
       is_authoritative: false,
       _meta: {
+        provider,
         model: "heuristic",
         tokens_used: 0,
         input_truncated: inputTruncated,
@@ -319,17 +329,22 @@ function buildFallbackResult(
 
   return {
     summary: fallbackData.summary,
+    file_kind: fallbackData.file_kind,
     important_symbols: fallbackData.important_symbols.map((s) => ({
       name: s.name,
       kind: s.kind,
       role: s.role,
       location: s.location,
     })),
+    important_sections: fallbackData.important_sections,
+    test_cases: fallbackData.test_cases,
+    covered_behaviors: fallbackData.covered_behaviors,
     evidence: fallbackData.evidence,
     uncertainties: fallbackData.uncertainties,
     must_verify_in_source: fallbackData.must_verify_in_source,
     is_authoritative: fallbackData.is_authoritative,
     _meta: {
+      provider,
       model: "heuristic",
       tokens_used: 0,
       input_truncated: inputTruncated,

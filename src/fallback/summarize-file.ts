@@ -17,6 +17,7 @@ import { logger } from "../logger.js";
 
 export interface FallbackSummarizeResult {
   summary: string;
+  file_kind?: "code" | "markdown" | "text" | "test" | "unknown";
   important_symbols: Array<{
     name: string;
     kind:
@@ -30,6 +31,9 @@ export interface FallbackSummarizeResult {
     role: string;
     location?: string;
   }>;
+  important_sections?: Array<{ heading: string; role: string; location?: string }>;
+  test_cases?: Array<{ name: string; behavior: string; location?: string }>;
+  covered_behaviors?: string[];
   evidence: Array<{
     claim: string;
     source: string;
@@ -590,6 +594,113 @@ function buildSummary(
 }
 
 // ---------------------------------------------------------------------------
+// File-kind detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect the kind of file based on its name and extension.
+ * Returns "test", "markdown", "text", "code", or "unknown".
+ */
+function detectFileKind(filePath: string): FallbackSummarizeResult["file_kind"] {
+  const basename = path.basename(filePath).toLowerCase();
+  const ext = path.extname(filePath).toLowerCase();
+
+  // Test files
+  if (/\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(basename)) return "test";
+  if (filePath.replace(/\\/g, "/").includes("__tests__/")) return "test";
+
+  // Markdown / text
+  if (ext === ".md" || ext === ".mdx") return "markdown";
+  if (ext === ".txt") return "text";
+
+  // Code files (common extensions)
+  const codeExts = new Set([
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".py", ".pyi", ".rs", ".go", ".java", ".kt", ".kts",
+    ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp",
+    ".rb", ".php", ".swift", ".vue", ".svelte",
+    ".css", ".scss", ".less", ".html", ".htm",
+    ".sql", ".sh", ".bash", ".zsh", ".json", ".yaml", ".yml", ".toml",
+    ".xml", ".graphql", ".gql", ".proto",
+  ]);
+  if (codeExts.has(ext)) return "code";
+
+  return "unknown";
+}
+
+// ---------------------------------------------------------------------------
+// Markdown / text section extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract headings from markdown/text content as important_sections.
+ */
+function extractSections(
+  text: string,
+): Array<{ heading: string; role: string; location?: string }> {
+  const sections: Array<{ heading: string; role: string; location?: string }> = [];
+  const headingRegex = /^(#{1,6})\s+(.+)$/gm;
+  for (const m of text.matchAll(headingRegex)) {
+    const level = m[1].length;
+    const heading = m[2].trim();
+    if (heading.length === 0) continue;
+    const line = lineNumberOf(text, m.index);
+    sections.push({
+      heading,
+      role: `h${level} heading`,
+      location: `line ${line}`,
+    });
+  }
+  return sections.slice(0, 20);
+}
+
+// ---------------------------------------------------------------------------
+// Test file extraction
+// ---------------------------------------------------------------------------
+
+/** Framework symbols to exclude from important_symbols in test files. */
+const TEST_FRAMEWORK_SYMBOLS = new Set([
+  "describe", "it", "test", "expect",
+  "beforeEach", "afterEach", "beforeAll", "afterAll",
+  "vi", "jest",
+]);
+
+/**
+ * Extract test case names and behaviors from it() / test() calls.
+ */
+function extractTestCases(
+  text: string,
+): Array<{ name: string; behavior: string; location?: string }> {
+  const testCases: Array<{ name: string; behavior: string; location?: string }> = [];
+  const testRegex = /(?:it|test)\s*\(\s*["'`]([^"'`]+)["'`]/g;
+  for (const m of text.matchAll(testRegex)) {
+    const name = m[1];
+    if (name.length === 0) continue;
+    const line = lineNumberOf(text, m.index);
+    testCases.push({
+      name,
+      behavior: `Test: ${name}`,
+      location: `line ${line}`,
+    });
+  }
+  return testCases;
+}
+
+/**
+ * Extract describe() block names as covered_behaviors.
+ */
+function extractCoveredBehaviors(text: string): string[] {
+  const behaviors: string[] = [];
+  const describeRegex = /describe\s*\(\s*["'`]([^"'`]+)["'`]/g;
+  for (const m of text.matchAll(describeRegex)) {
+    const name = m[1];
+    if (name.length === 0) continue;
+    behaviors.push(name);
+  }
+  return behaviors;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -670,9 +781,27 @@ export function summarizeFileFallback(
   // 3. Determine file type from extension
   const ext = path.extname(relativePath).toLowerCase();
   const lang = langFromExtension(ext);
+  const fileKind = detectFileKind(relativePath);
 
-  // 4. Extract structured information
-  const symbols = extractSymbols(text);
+  // 4. Extract structured information (symbols, sections, test data based on kind)
+  let symbols = extractSymbols(text);
+  let importantSections: FallbackSummarizeResult["important_sections"];
+  let testCases: FallbackSummarizeResult["test_cases"];
+  let coveredBehaviors: FallbackSummarizeResult["covered_behaviors"];
+
+  // For markdown/text: extract sections, skip symbol extraction
+  if (fileKind === "markdown" || fileKind === "text") {
+    importantSections = extractSections(text);
+    symbols = []; // don't put headings in important_symbols
+  }
+
+  // For test files: filter framework symbols, extract test data
+  if (fileKind === "test") {
+    symbols = symbols.filter((s) => !TEST_FRAMEWORK_SYMBOLS.has(s.name));
+    testCases = extractTestCases(text);
+    coveredBehaviors = extractCoveredBehaviors(text);
+  }
+
   const { claims: evidence, importModules, kindCounts } = extractEvidence(
     text,
     symbols,
@@ -703,6 +832,12 @@ export function summarizeFileFallback(
   // 7. Build evidence array
   // Add the summary itself as evidence
   const allEvidence: FallbackSummarizeResult["evidence"] = [...evidence];
+  // Add file kind as evidence
+  allEvidence.push({
+    claim: `File kind detected: ${fileKind}`,
+    source: "extension and path-based detection",
+    confidence: fileKind === "unknown" ? "low" : "high",
+  });
   if (truncated) {
     allEvidence.push({
       claim: `File was truncated from ${rawText.length} to ${limitChars} characters`,
@@ -770,7 +905,11 @@ export function summarizeFileFallback(
 
   return {
     summary,
+    file_kind: fileKind,
     important_symbols,
+    ...(importantSections ? { important_sections: importantSections } : {}),
+    ...(testCases ? { test_cases: testCases } : {}),
+    ...(coveredBehaviors ? { covered_behaviors: coveredBehaviors } : {}),
     evidence: allEvidence,
     uncertainties,
     must_verify_in_source: true,

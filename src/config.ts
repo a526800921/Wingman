@@ -38,6 +38,7 @@ export interface AppConfig {
   modelBaseUrl: string;
   modelApiKey: string;
   modelName: string;
+  modelProvider: string; // "remote" | "local", from AUX_MODEL_PROVIDER
   modelTimeoutMs: number;
   modelAllowedHosts: string[];
   allowInsecureLocalHttp: boolean;
@@ -63,6 +64,7 @@ export function loadConfig(): AppConfig {
   const modelBaseUrl = process.env.AUX_MODEL_BASE_URL || DEFAULT_BASE_URL;
   const modelApiKey = requireEnv("AUX_MODEL_API_KEY");
   const modelName = process.env.AUX_MODEL_NAME || DEFAULT_MODEL;
+  const modelProvider = process.env.AUX_MODEL_PROVIDER || "remote";
   const modelTimeoutMs = Number(process.env.AUX_MODEL_TIMEOUT_MS) || DEFAULT_TIMEOUT;
   const modelAllowedHosts = process.env.AUX_MODEL_ALLOWED_HOSTS
     ? process.env.AUX_MODEL_ALLOWED_HOSTS.split(",").map((h) => h.trim()).filter(Boolean)
@@ -75,6 +77,7 @@ export function loadConfig(): AppConfig {
   logger.info("config loaded", {
     modelBaseUrl: modelBaseUrl.replace(/\/\/.*@/, "//***@"),
     modelName,
+    modelProvider,
     modelTimeoutMs,
     modelAllowedHosts,
     allowInsecureLocalHttp,
@@ -86,6 +89,7 @@ export function loadConfig(): AppConfig {
     modelBaseUrl,
     modelApiKey,
     modelName,
+    modelProvider,
     modelTimeoutMs,
     modelAllowedHosts,
     allowInsecureLocalHttp,

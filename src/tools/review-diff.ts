@@ -31,6 +31,138 @@ import { reviewDiffFallback } from "../fallback/review-diff.js";
 import { createTraceId, traceLogger, logDuration } from "../logger.js";
 
 // ---------------------------------------------------------------------------
+// Smart diff truncation
+// ---------------------------------------------------------------------------
+
+/**
+ * Truncate a unified diff intelligently: keep all file headers (---/+++ lines),
+ * distribute remaining chars proportionally across files, and truncate at hunk
+ * boundaries when a file section exceeds its allocation.
+ */
+function smartTruncateDiff(
+  diff: string,
+  maxChars: number,
+): { text: string; truncated: boolean } {
+  if (diff.length <= maxChars) {
+    return { text: diff, truncated: false };
+  }
+
+  // Split diff into per-file sections using ---/+++ header pairs
+  const fileHeaderRe = /^(---\s+\S+.*\n\+\+\+\s+\S+.*\n)/gm;
+  const sections: { header: string; body: string }[] = [];
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = fileHeaderRe.exec(diff)) !== null) {
+    // Capture any preamble before the first file header
+    if (lastIdx < match.index) {
+      sections.push({
+        header: "",
+        body: diff.slice(lastIdx, match.index),
+      });
+    }
+    const bodyStart = match.index + match[0].length;
+    fileHeaderRe.lastIndex = bodyStart;
+    const nextMatch = fileHeaderRe.exec(diff);
+    const bodyEnd = nextMatch ? nextMatch.index : diff.length;
+    sections.push({
+      header: match[0],
+      body: diff.slice(bodyStart, bodyEnd),
+    });
+    lastIdx = bodyEnd;
+    if (nextMatch) {
+      fileHeaderRe.lastIndex = nextMatch.index;
+    }
+  }
+
+  // If we didn't find at least one file header, fall back to simple truncation
+  if (sections.length === 0) {
+    return { text: diff.slice(0, maxChars), truncated: true };
+  }
+
+  // Calculate total header size
+  const totalHeaderSize = sections.reduce((sum, s) => sum + s.header.length, 0);
+
+  // If headers alone exceed maxChars, fall back to simple truncation
+  if (totalHeaderSize >= maxChars) {
+    return { text: diff.slice(0, maxChars), truncated: true };
+  }
+
+  // Distribute remaining chars across files proportionally to their body sizes
+  const remainingChars = maxChars - totalHeaderSize;
+  const totalBodySize = sections.reduce((sum, s) => sum + s.body.length, 0);
+
+  let result = "";
+  let truncated = false;
+
+  for (const section of sections) {
+    result += section.header;
+    if (section.body.length === 0) continue;
+
+    // Allocate proportionally, minimum 200 chars per file body
+    const proportion =
+      totalBodySize > 0 ? section.body.length / totalBodySize : 0;
+    const allocation = Math.max(
+      Math.floor(remainingChars * proportion),
+      200,
+    );
+
+    if (section.body.length <= allocation) {
+      result += section.body;
+    } else {
+      // Truncate at the last complete hunk boundary that fits
+      result += truncateBodyAtHunk(section.body, allocation);
+      truncated = true;
+    }
+  }
+
+  return { text: result, truncated };
+}
+
+/**
+ * Truncate a diff body at the last complete hunk boundary that fits within
+ * the given character limit.
+ */
+function truncateBodyAtHunk(body: string, maxLen: number): string {
+  if (body.length <= maxLen) return body;
+
+  const hunkRe = /^@@\s+-(\d+),?(\d*)\s+\+(\d+),?(\d*)\s+@@.*\n/gm;
+  let lastHunkEnd = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = hunkRe.exec(body)) !== null) {
+    const hunkStart = match.index;
+    if (hunkStart >= maxLen) break;
+
+    // Find end of this hunk (start of next, or end of body)
+    const nextIdx = hunkRe.exec(body);
+    const hunkEnd = nextIdx ? nextIdx.index : body.length;
+
+    if (hunkEnd <= maxLen) {
+      lastHunkEnd = hunkEnd;
+    } else {
+      break;
+    }
+
+    if (nextIdx) {
+      hunkRe.lastIndex = nextIdx.index;
+    } else {
+      break;
+    }
+  }
+
+  if (lastHunkEnd > 0) {
+    return (
+      body.slice(0, lastHunkEnd) +
+      "\n@@ ... (truncated, remaining hunks omitted) @@\n"
+    );
+  }
+
+  // Fallback: simple slice at maxLen
+  return body.slice(0, maxLen) + "\n... (truncated)\n";
+}
+
+// ---------------------------------------------------------------------------
 // Config discrimination
 // ---------------------------------------------------------------------------
 
@@ -86,23 +218,30 @@ export async function handleReviewDiff(
 
   async function handleImpl(): Promise<CallToolResult> {
 
-  // ---- 2. Truncate diff if longer than max_chars ----
-  const inputTruncated = originalDiff.length > maxChars;
-  const diff = inputTruncated ? originalDiff.slice(0, maxChars) : originalDiff;
+  // ---- 2. Smart truncate diff if longer than max_chars ----
+  const truncation = smartTruncateDiff(originalDiff, maxChars);
+  const diff = truncation.text;
+  const inputTruncated = truncation.truncated;
 
   if (inputTruncated) {
     log.warn("review-diff: diff truncated", {
       originalLength: originalDiff.length,
+      truncatedLength: diff.length,
       maxChars,
     });
   }
 
-  // ---- 3. Determine if model is available ----
+  // ---- 3. Determine provider for _meta ----
+  const provider = (config as AppConfig).modelProvider ??
+    process.env.AUX_MODEL_PROVIDER ??
+    "remote";
+
+  // ---- 4. Determine if model is available ----
   const modelAvailable = hasModelConfig() && hasApiKey(config);
 
   if (modelAvailable) {
     try {
-      return await modelReview(config, diff, focus, inputTruncated);
+      return await modelReview(config, diff, focus, inputTruncated, provider);
     } catch (err: unknown) {
       log.warn(
         "review-diff: model path failed, falling back to heuristic",
@@ -116,8 +255,8 @@ export async function handleReviewDiff(
     log.info("review-diff: model not available, using heuristic fallback");
   }
 
-  // ---- 4. Heuristic fallback path ----
-  return heuristicReview(diff, maxChars, inputTruncated);
+  // ---- 5. Heuristic fallback path ----
+  return heuristicReview(diff, maxChars, inputTruncated, provider);
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +268,7 @@ async function modelReview(
   diff: string,
   focus: string | undefined,
   inputTruncated: boolean,
+  provider: string,
 ): Promise<CallToolResult> {
   log.info("review-diff: attempting model review", {
     model: config.modelName,
@@ -158,6 +298,7 @@ async function modelReview(
   const outputWithMeta = {
     ...(parsed as Record<string, unknown>),
     _meta: {
+      provider,
       model: config.modelName,
       input_truncated: inputTruncated,
       fallback_used: false,
@@ -189,6 +330,7 @@ function heuristicReview(
   diff: string,
   maxChars: number,
   inputTruncated: boolean,
+  provider: string,
 ): CallToolResult {
   log.info("review-diff: using heuristic fallback");
 
@@ -197,6 +339,7 @@ function heuristicReview(
   const outputData = {
     ...fallbackResult,
     _meta: {
+      provider,
       model: "heuristic",
       tokens_used: 0,
       input_truncated: inputTruncated,

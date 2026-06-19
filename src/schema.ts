@@ -30,6 +30,7 @@ export const UncertaintySchema = z.strictObject({
 export type Uncertainty = z.infer<typeof UncertaintySchema>;
 
 export const ResultMetaSchema = z.strictObject({
+  provider: z.string().optional(),
   model: z.string(),
   tokens_used: z.number().int().nonnegative().optional(),
   input_truncated: z.boolean(),
@@ -66,6 +67,9 @@ export const PossibleRiskSchema = z.strictObject({
   severity: SeveritySchema,
   location: z.string().optional(),
   explanation: z.string().optional(),
+  evidence: z.string().optional(),
+  introduced_by_diff: z.boolean().optional(),
+  confidence: ConfidenceSchema.optional(),
 });
 export type PossibleRisk = z.infer<typeof PossibleRiskSchema>;
 
@@ -113,6 +117,29 @@ export const ReviewDiffInput = z.strictObject({
 });
 export type ReviewDiffInput = z.infer<typeof ReviewDiffInput>;
 
+export const ImportantSectionSchema = z.strictObject({
+  heading: z.string(),
+  role: z.string(),
+  location: z.string().optional(),
+});
+export type ImportantSection = z.infer<typeof ImportantSectionSchema>;
+
+export const TestCaseSchema = z.strictObject({
+  name: z.string(),
+  behavior: z.string(),
+  location: z.string().optional(),
+});
+export type TestCase = z.infer<typeof TestCaseSchema>;
+
+export const FileKindSchema = z.enum([
+  "code",
+  "markdown",
+  "text",
+  "test",
+  "unknown",
+]);
+export type FileKind = z.infer<typeof FileKindSchema>;
+
 // ---------------------------------------------------------------------------
 // 输出 schemas
 // ---------------------------------------------------------------------------
@@ -124,6 +151,10 @@ export const SummarizeFileOutput = authoritativeMarker.merge(
     evidence: z.array(EvidenceSchema),
     uncertainties: z.array(UncertaintySchema),
     must_verify_in_source: z.boolean(),
+    important_sections: z.array(ImportantSectionSchema).optional(),
+    test_cases: z.array(TestCaseSchema).optional(),
+    covered_behaviors: z.array(z.string()).optional(),
+    file_kind: FileKindSchema.optional(),
     _meta: ResultMetaSchema,
   }),
 );
@@ -147,6 +178,7 @@ export const ReviewDiffOutput = authoritativeMarker.merge(
     suggested_source_checks: z.array(z.string()),
     suggested_tests: z.array(z.string()),
     uncertainties: z.array(UncertaintySchema),
+    must_verify_in_source: z.boolean().optional(),
     _meta: ResultMetaSchema,
   }),
 );

@@ -80,17 +80,21 @@ export async function handleCompressText(
   const isFullConfig =
     "modelApiKey" in config && (config as AppConfig).modelApiKey.length > 0;
 
+  const provider = isFullConfig
+    ? (config as AppConfig).modelProvider
+    : process.env.AUX_MODEL_PROVIDER ?? "remote";
+
   const modelAvailable = hasModelConfig() && isFullConfig;
 
   if (modelAvailable) {
-    const result = await tryModelCompression(text, data, config as AppConfig);
+    const result = await tryModelCompression(text, data, config as AppConfig, provider);
     if (result) {
       return result;
     }
   }
 
   // ---- 4. Fallback path ----
-  return buildFallbackResult(text, data.label, maxChars, inputTruncated);
+  return buildFallbackResult(text, data.label, maxChars, inputTruncated, provider);
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +105,7 @@ async function tryModelCompression(
   text: string,
   data: CompressTextValidatedInput,
   appConfig: AppConfig,
+  provider: string,
 ): Promise<CallToolResult | null> {
   const client = new ChatClient(appConfig);
 
@@ -155,6 +160,7 @@ async function tryModelCompression(
     }
 
     (parsed as Record<string, unknown>)._meta = {
+      provider,
       model: appConfig.modelName,
       tokens_used: 0,
       input_truncated: text.length < data.text.length,
@@ -198,6 +204,7 @@ function buildFallbackResult(
   label: string,
   maxChars: number,
   inputTruncated: boolean,
+  provider: string,
 ): CallToolResult {
   log.info("compress-text: using heuristic fallback compression", {
     label,
@@ -210,6 +217,7 @@ function buildFallbackResult(
   const outputData = {
     ...fallbackResult,
     _meta: {
+      provider,
       model: "heuristic",
       tokens_used: 0,
       input_truncated: inputTruncated,

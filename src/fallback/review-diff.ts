@@ -22,6 +22,9 @@ export interface FallbackRisk {
   severity: "low" | "medium" | "high" | "critical";
   location?: string;
   explanation?: string;
+  evidence?: string;
+  introduced_by_diff?: boolean;
+  confidence?: "low" | "medium" | "high";
 }
 
 export interface FallbackUncertainty {
@@ -219,6 +222,13 @@ function detectPatterns(
         location: loc,
         explanation: `A literal ${label} value appears to be embedded in source code. ` +
           `Secrets should be loaded from environment variables or a secure vault, never committed to version control.`,
+        evidence: `Pattern /${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/ matched in diff content`,
+        introduced_by_diff: regex.test(addedText)
+          ? true
+          : regex.test(removedText)
+            ? false
+            : undefined,
+        confidence: truncated ? "medium" : "high",
       });
       hasOnlyFormatting = false;
       hasOnlyComments = false;
@@ -241,6 +251,9 @@ function detectPatterns(
       explanation:
         "Removal of authentication, authorization, or validation logic may weaken security. " +
         "Verify that any removed checks are either unnecessary or have been relocated.",
+      evidence: `Auth-related keywords removed: ${unique.join(", ")}`,
+      introduced_by_diff: false,
+      confidence: "medium",
     });
     hasOnlyFormatting = false;
     hasOnlyComments = false;
@@ -264,6 +277,9 @@ function detectPatterns(
         explanation:
           "SQL query built with string concatenation or template interpolation " +
           "detected near SQL keywords. Use parameterized queries (prepared statements) instead.",
+        evidence: `SQL keyword and string concatenation pattern detected in added lines`,
+        introduced_by_diff: true,
+        confidence: truncated ? "medium" : "high",
       });
       hasOnlyFormatting = false;
       hasOnlyComments = false;
@@ -289,6 +305,9 @@ function detectPatterns(
           ? "User input appears to flow into the command — this is a command injection risk. " +
             "Sanitise inputs or avoid shell execution entirely."
           : "Ensure all arguments are statically defined and not derived from untrusted input."),
+      evidence: `Command execution pattern (exec/spawn/eval) detected in added lines${hasUserInput ? " with user-input indicators nearby" : ""}`,
+      introduced_by_diff: true,
+      confidence: truncated ? "medium" : "high",
     });
     hasOnlyFormatting = false;
     hasOnlyComments = false;
@@ -306,6 +325,9 @@ function detectPatterns(
       explanation:
         "Catch blocks with no error handling silently swallow exceptions, " +
         "making failures invisible and debugging difficult. Either handle, log, or re-throw the error.",
+      evidence: "Empty catch block pattern matched in added lines",
+      introduced_by_diff: true,
+      confidence: truncated ? "medium" : "high",
     });
     hasOnlyFormatting = false;
     hasOnlyComments = false;
@@ -326,6 +348,9 @@ function detectPatterns(
       explanation:
         "Flags like --insecure, --no-verify, or NODE_TLS_REJECT_UNAUTHORIZED=0 " +
         "disable security checks. This should only appear in local development or test harnesses.",
+      evidence: "Security-disabling flag pattern (--insecure, --no-verify, NODE_TLS_REJECT_UNAUTHORIZED=0) matched in added lines",
+      introduced_by_diff: true,
+      confidence: truncated ? "medium" : "high",
     });
     hasOnlyFormatting = false;
     hasOnlyComments = false;
@@ -367,6 +392,9 @@ function detectPatterns(
           explanation:
             "Adding, removing, or changing dependencies can introduce supply-chain risks, " +
             "breaking changes, or license incompatibilities. Run a dependency audit.",
+          evidence: `Manifest file ${basename} modified with ${addedDepLines.length} added lines`,
+          introduced_by_diff: undefined,
+          confidence: "medium",
         });
       }
       hasOnlyFormatting = false;
@@ -389,6 +417,9 @@ function detectPatterns(
         explanation:
           "New async code does not appear to include .catch() or try/catch. " +
           "Unhandled promise rejections can crash the process in modern Node.",
+        evidence: "Async function definition without accompanying .catch() or try/catch",
+        introduced_by_diff: true,
+        confidence: "medium",
       });
     }
     hasOnlyFormatting = false;
@@ -414,6 +445,9 @@ function detectPatterns(
         explanation:
           `"${label}" bypasses the type checker, hiding potential runtime errors. ` +
           "Prefer proper types or a TODO comment explaining why the escape is necessary.",
+        evidence: `Pattern "${label}" matched in added lines`,
+        introduced_by_diff: true,
+        confidence: "medium",
       });
     }
     hasOnlyFormatting = false;
@@ -452,6 +486,9 @@ function detectPatterns(
       explanation:
         "A large new function or block was added. Consider whether it can be broken into " +
         "smaller, testable units. Large blocks are harder to review and more likely to contain bugs.",
+      evidence: `${maxConsecutive} consecutive added lines detected`,
+      introduced_by_diff: true,
+      confidence: "medium",
     });
     hasOnlyFormatting = false;
     hasOnlyComments = false;
@@ -476,6 +513,9 @@ function detectPatterns(
         explanation:
           "Debug logging statements in production code can leak sensitive data " +
           "and clutter output. Replace with proper structured logging or remove.",
+        evidence: `Pattern "${label}" matched in added lines`,
+        introduced_by_diff: true,
+        confidence: "medium",
       });
       break; // one is enough for this category
     }
@@ -497,8 +537,12 @@ function detectPatterns(
       risks.push({
         risk: "Diff contains only whitespace/formatting changes",
         severity: "low",
+        location: undefined,
         explanation:
           "All added lines appear to be whitespace. These are likely formatting-only changes with no functional impact.",
+        evidence: "No non-whitespace characters found in added lines",
+        introduced_by_diff: undefined,
+        confidence: "low",
       });
     }
     // Check meaningful non-whitespace, non-comment lines
@@ -521,8 +565,12 @@ function detectPatterns(
       risks.push({
         risk: "Diff contains only comment changes",
         severity: "low",
+        location: undefined,
         explanation:
           "All added non-whitespace lines appear to be comments. These are likely documentation-only changes.",
+        evidence: "All added lines are whitespace or comment syntax",
+        introduced_by_diff: undefined,
+        confidence: "low",
       });
     }
     hasOnlyFormatting = false; // We know there's content
@@ -538,9 +586,13 @@ function detectPatterns(
       risks.push({
         risk: "Files appear to have been renamed/moved",
         severity: "low",
+        location: undefined,
         explanation:
           `${renamed.length} file(s) renamed. Verify import paths throughout the codebase ` +
           "have been updated accordingly.",
+        evidence: `${renamed.length} file(s) renamed: old names not present in new file list`,
+        introduced_by_diff: undefined,
+        confidence: "low",
       });
     }
   }
@@ -550,8 +602,12 @@ function detectPatterns(
     risks.push({
       risk: "Diff appears to contain only formatting changes",
       severity: "low",
+      location: undefined,
       explanation:
         "No functional patterns detected. The changes appear to be limited to formatting.",
+      evidence: "None of the high/medium severity patterns matched",
+      introduced_by_diff: undefined,
+      confidence: "low",
     });
   }
 
@@ -717,6 +773,9 @@ export function reviewDiffFallback(
       explanation:
         "Binary files were modified. The heuristic reviewer cannot inspect their contents. " +
         "Manually verify the source and purpose of these changes.",
+      evidence: `${binaryFiles.length} binary file(s) matched by extension: ${binaryFiles.map((f) => f.new).join(", ")}`,
+      introduced_by_diff: undefined,
+      confidence: "medium",
     });
   }
 
@@ -824,6 +883,13 @@ export function reviewDiffFallback(
       suggested_verification:
         "If the diff is large, consider reviewing it in smaller chunks by file or directory.",
     });
+    uncertainties.push({
+      topic: "Diff truncated",
+      reason:
+        "Only part of the diff was analyzed; global control-flow conclusions may be invalid.",
+      suggested_verification:
+        "Review the complete modified function/file before acting on this finding.",
+    });
   }
 
   if (hasBinaryChanges) {
@@ -837,9 +903,43 @@ export function reviewDiffFallback(
     });
   }
 
+  // --- 9b. When truncated, demote global-control-flow risks to uncertainties ---
+  let finalRisks = detection.risks;
+  if (truncated) {
+    const globalControlFlowTerms = [
+      "infinite loop",
+      "always returns",
+      "never returns",
+      "control flow",
+      "recursion",
+      "global state",
+      "definite return",
+      "unreachable",
+      "dead code",
+    ];
+    const remainingRisks: FallbackRisk[] = [];
+    for (const r of finalRisks) {
+      const riskText = (r.risk + " " + (r.explanation ?? "")).toLowerCase();
+      if (globalControlFlowTerms.some((term) => riskText.includes(term.toLowerCase()))) {
+        uncertainties.push({
+          topic: `Risk demoted due to truncation: ${r.risk}`,
+          reason:
+            `This finding about "${r.risk}" may depend on global control flow that ` +
+            "cannot be fully verified from the truncated diff. " +
+            (r.explanation ? `Original note: ${r.explanation}` : ""),
+          suggested_verification:
+            "Review the complete, un-truncated file before concluding on this finding.",
+        });
+      } else {
+        remainingRisks.push(r);
+      }
+    }
+    finalRisks = remainingRisks;
+  }
+
   const result: FallbackReviewResult = {
     change_summary,
-    possible_risks: detection.risks,
+    possible_risks: finalRisks,
     suggested_source_checks,
     suggested_tests,
     uncertainties,
