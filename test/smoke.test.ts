@@ -131,28 +131,23 @@ describe("Smoke tests (no API key, fallback mode)", () => {
   });
 
   it("aux_summarize_file rejects path traversal", async () => {
-    const result = await handleSummarizeFile(
-      { path: "../../../etc/passwd" },
-      { workspaceRoot: TMP_DIR },
-    );
-
-    assert.equal(result.isError, true);
-    const text = result.content[0].text as string;
-    assert.ok(
-      text.toLowerCase().includes("access denied") ||
-        text.toLowerCase().includes("rejected") ||
-        text.toLowerCase().includes("outside"),
-      `expected access denied message, got: ${text}`,
+    await assert.rejects(
+      () => handleSummarizeFile(
+        { path: "../../../etc/passwd" },
+        { workspaceRoot: TMP_DIR },
+      ),
+      { message: /access denied|outside|resolves outside/i },
     );
   });
 
   it("aux_summarize_file rejects absolute paths", async () => {
-    const result = await handleSummarizeFile(
-      { path: "C:\\Windows\\System32\\config\\sam" },
-      { workspaceRoot: TMP_DIR },
+    await assert.rejects(
+      () => handleSummarizeFile(
+        { path: "C:\\Windows\\System32\\config\\sam" },
+        { workspaceRoot: TMP_DIR },
+      ),
+      { message: /absolute|invalid params/i },
     );
-
-    assert.equal(result.isError, true);
   });
 
   it("aux_summarize_file returns error for nonexistent file", async () => {
@@ -269,21 +264,19 @@ describe("Smoke tests (no API key, fallback mode)", () => {
   });
 
   it("aux_review_diff rejects empty diff (schema requires min 1 char)", async () => {
-    const result = await handleReviewDiff(
-      { diff: "" },
-      { workspaceRoot: TMP_DIR },
+    await assert.rejects(
+      () => handleReviewDiff({ diff: "" }, { workspaceRoot: TMP_DIR }),
+      { message: /invalid|too_small/i },
     );
-
-    // Empty diff fails input schema validation (diff requires min 1 char)
-    assert.equal(result.isError, true);
   });
 
   it("aux_compress_text rejects invalid input (missing required field)", async () => {
-    const result = await handleCompressText(
-      { text: "some text" }, // missing 'label'
-      { workspaceRoot: TMP_DIR },
+    await assert.rejects(
+      () => handleCompressText(
+        { text: "some text" }, // missing 'label'
+        { workspaceRoot: TMP_DIR },
+      ),
+      { message: /required|invalid/i },
     );
-
-    assert.equal(result.isError, true);
   });
 });

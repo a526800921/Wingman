@@ -23,6 +23,59 @@ const SERVER_VERSION = "0.1.0";
 
 // --- Tool definitions (inputSchema for tools/list) ---
 
+const SUMMARIZE_FILE_OUTPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    summary: { type: "string", description: "Natural-language overview of the file" },
+    important_symbols: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          kind: { type: "string", enum: ["function", "class", "interface", "type", "const", "enum", "unknown"] },
+          role: { type: "string" },
+          location: { type: "string" },
+        },
+      },
+    },
+    evidence: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          claim: { type: "string" },
+          source: { type: "string" },
+          confidence: { type: "string", enum: ["high", "medium", "low"] },
+        },
+      },
+    },
+    uncertainties: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          topic: { type: "string" },
+          reason: { type: "string" },
+          suggested_verification: { type: "string" },
+        },
+      },
+    },
+    must_verify_in_source: { type: "boolean" },
+    is_authoritative: { type: "boolean", const: false },
+    _meta: {
+      type: "object",
+      properties: {
+        model: { type: "string" },
+        tokens_used: { type: "integer" },
+        input_truncated: { type: "boolean" },
+        fallback_used: { type: "boolean" },
+      },
+    },
+  },
+  required: ["summary", "must_verify_in_source", "is_authoritative", "_meta"],
+};
+
 const SUMMARIZE_FILE_TOOL_DEFINITION = {
   name: "aux_summarize_file",
   description:
@@ -50,6 +103,28 @@ const SUMMARIZE_FILE_TOOL_DEFINITION = {
     },
     required: ["path"],
   },
+  outputSchema: SUMMARIZE_FILE_OUTPUT_SCHEMA,
+};
+
+const COMPRESS_TEXT_OUTPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    summary: { type: "string" },
+    key_facts: { type: "array", items: { type: "string" } },
+    discarded_or_low_confidence: { type: "array", items: { type: "string" } },
+    must_verify_in_source: { type: "boolean" },
+    is_authoritative: { type: "boolean", const: false },
+    _meta: {
+      type: "object",
+      properties: {
+        model: { type: "string" },
+        tokens_used: { type: "integer" },
+        input_truncated: { type: "boolean" },
+        fallback_used: { type: "boolean" },
+      },
+    },
+  },
+  required: ["summary", "must_verify_in_source", "is_authoritative", "_meta"],
 };
 
 const COMPRESS_TEXT_TOOL_DEFINITION = {
@@ -83,6 +158,50 @@ const COMPRESS_TEXT_TOOL_DEFINITION = {
     },
     required: ["label", "text"],
   },
+  outputSchema: COMPRESS_TEXT_OUTPUT_SCHEMA,
+};
+
+const REVIEW_DIFF_OUTPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    change_summary: { type: "string" },
+    possible_risks: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          risk: { type: "string" },
+          severity: { type: "string", enum: ["low", "medium", "high", "critical"] },
+          location: { type: "string" },
+          explanation: { type: "string" },
+        },
+      },
+    },
+    suggested_source_checks: { type: "array", items: { type: "string" } },
+    suggested_tests: { type: "array", items: { type: "string" } },
+    uncertainties: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          topic: { type: "string" },
+          reason: { type: "string" },
+          suggested_verification: { type: "string" },
+        },
+      },
+    },
+    is_authoritative: { type: "boolean", const: false },
+    _meta: {
+      type: "object",
+      properties: {
+        model: { type: "string" },
+        tokens_used: { type: "integer" },
+        input_truncated: { type: "boolean" },
+        fallback_used: { type: "boolean" },
+      },
+    },
+  },
+  required: ["change_summary", "is_authoritative", "_meta"],
 };
 
 const REVIEW_DIFF_TOOL_DEFINITION = {
@@ -112,6 +231,7 @@ const REVIEW_DIFF_TOOL_DEFINITION = {
     },
     required: ["diff"],
   },
+  outputSchema: REVIEW_DIFF_OUTPUT_SCHEMA,
 };
 
 // --- Server setup ---

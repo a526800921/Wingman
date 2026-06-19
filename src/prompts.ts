@@ -74,13 +74,15 @@ export function buildSummarizeFileUserMessage(
 ): string {
   const parts: string[] = [
     `${CONTENT_MARKER_START}`,
-    fileContent,
-    `${CONTENT_MARKER_END}`,
   ];
   if (focus) {
+    parts.push(`[Focus: ${focus}]`);
     parts.push("");
-    parts.push(`Focus: ${focus}`);
   }
+  parts.push(
+    fileContent,
+    `${CONTENT_MARKER_END}`,
+  );
   parts.push("");
   parts.push(
     "Respond with ONLY the JSON object specified in the system prompt. No other text.",
@@ -125,15 +127,17 @@ export function buildCompressTextUserMessage(
 ): string {
   const parts: string[] = [
     `${CONTENT_MARKER_START}`,
+  ];
+  if (focus) {
+    parts.push(`[Focus: ${focus}]`);
+    parts.push("");
+  }
+  parts.push(
     `Label: ${label}`,
     `---`,
     text,
     `${CONTENT_MARKER_END}`,
-  ];
-  if (focus) {
-    parts.push("");
-    parts.push(`Focus: ${focus}`);
-  }
+  );
   parts.push("");
   parts.push(
     "Respond with ONLY the JSON object specified in the system prompt. No other text.",
@@ -195,13 +199,15 @@ export function buildReviewDiffUserMessage(
 ): string {
   const parts: string[] = [
     `${CONTENT_MARKER_START}`,
-    diff,
-    `${CONTENT_MARKER_END}`,
   ];
   if (focus) {
+    parts.push(`[Focus: ${focus}]`);
     parts.push("");
-    parts.push(`Focus: ${focus}`);
   }
+  parts.push(
+    diff,
+    `${CONTENT_MARKER_END}`,
+  );
   parts.push("");
   parts.push(
     "Respond with ONLY the JSON object specified in the system prompt. No other text.",

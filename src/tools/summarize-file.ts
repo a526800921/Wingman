@@ -7,7 +7,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { McpError, ErrorCode, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 import { loadConfig, loadConfigFallback, hasModelConfig } from "../config.js";
 import type { AppConfig } from "../config.js";
@@ -85,7 +85,7 @@ export async function handleSummarizeFile(
   // ---- Step 1: validate input ----------------------------------------------
   const inputValidation = validateInput("aux_summarize_file", input);
   if (!inputValidation.ok) {
-    return errorResult(`Invalid input: ${inputValidation.error}`);
+    throw new McpError(ErrorCode.InvalidParams, `Invalid input: ${inputValidation.error}`);
   }
   const validatedInput = inputValidation.data as SummarizeFileInput;
 
@@ -99,7 +99,7 @@ export async function handleSummarizeFile(
       userPath: validatedInput.path,
       error: message,
     });
-    return errorResult(`Access denied: ${message}`);
+    throw new McpError(ErrorCode.InvalidParams, `Access denied: ${message}`);
   }
 
   // ---- Step 3: read file content -------------------------------------------
@@ -204,8 +204,18 @@ async function tryModelSummarization(
       return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated);
     }
 
-    // Step 5f: validate output schema
-    const outputValidation = validateOutput("aux_summarize_file", parsed);
+    // Step 5f: attach _meta (model prompt does not include _meta)
+    const outputWithMeta = {
+      ...(parsed as Record<string, unknown>),
+      _meta: {
+        model: config.modelName,
+        input_truncated: inputTruncated,
+        fallback_used: false,
+      },
+    };
+
+    // Step 5g: validate output schema (after _meta is attached)
+    const outputValidation = validateOutput("aux_summarize_file", outputWithMeta);
     if (!outputValidation.ok) {
       logger.warn(
         "summarize_file: model output failed schema validation, falling back to heuristic",
@@ -214,22 +224,12 @@ async function tryModelSummarization(
       return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated);
     }
 
-    // Step 5h: success — attach _meta
-    const validatedOutput = outputValidation.data as SummarizeFileOutput;
-
     logger.info("summarize_file: model summarization succeeded", {
       model: config.modelName,
       inputTruncated,
     });
 
-    return {
-      ...validatedOutput,
-      _meta: {
-        model: config.modelName,
-        input_truncated: inputTruncated,
-        fallback_used: false,
-      },
-    };
+    return outputValidation.data as SummarizeFileOutput;
   } catch (err: unknown) {
     // Step 5g: any exception during model call falls through to fallback
     const message =

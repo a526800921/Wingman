@@ -124,8 +124,6 @@ async function assertSafeHost(
     resolvedAddr = result.address;
   } catch {
     // DNS resolution failure — let the fetch call fail naturally later.
-    // We still allow the request to proceed; the DNS failure is not a
-    // security issue (no connection can be made).
     return;
   }
 
@@ -133,6 +131,143 @@ async function assertSafeHost(
   if (resolvedNum !== null) {
     assertSafeIPv4(resolvedNum, resolvedAddr, allowInsecureLocalHttp);
   }
+
+  // --- IPv6 check ---
+  try {
+    const result6 = await lookup(hostname, { family: 6, all: false });
+    assertSafeIPv6(result6.address, allowInsecureLocalHttp);
+  } catch {
+    // No IPv6 address — ok, IPv4 check above is sufficient
+  }
+}
+
+/**
+ * Blocked IPv6 address prefixes.
+ * - Loopback: ::1/128
+ * - Link-local: fe80::/10
+ * - Unique local (ULA): fc00::/7
+ * - IPv4-mapped: ::ffff:0:0/96 (covers ::ffff:10.x.x.x etc.)
+ * - Cloud metadata (IPv6): fd00::/8 (commonly used for link-local metadata services)
+ */
+const BLOCKED_IPV6_RANGES: Array<{
+  label: string;
+  prefix: Uint8Array;
+  prefixLen: number;
+  isLoopback: boolean;
+}> = [
+  {
+    label: "loopback (::1)",
+    prefix: new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    prefixLen: 128,
+    isLoopback: true,
+  },
+  {
+    label: "link-local (fe80::/10)",
+    prefix: new Uint8Array([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    prefixLen: 10,
+    isLoopback: false,
+  },
+  {
+    label: "ULA (fc00::/7)",
+    prefix: new Uint8Array([0xfc, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    prefixLen: 7,
+    isLoopback: false,
+  },
+  {
+    label: "IPv4-mapped (::ffff:0:0/96)",
+    prefix: new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0, 0, 0, 0]),
+    prefixLen: 96,
+    isLoopback: false,
+  },
+  {
+    label: "cloud-meta / documentation / private (fd00::/8)",
+    prefix: new Uint8Array([0xfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    prefixLen: 8,
+    isLoopback: false,
+  },
+];
+
+/** Simple IPv6 address string → 16-byte array, or null on parse failure. */
+function parseIPv6(raw: string): Uint8Array | null {
+  // Node's `net` module can do this more robustly — use a light parser here
+  // to avoid extra imports.  Accept the standard colon-hex form and the
+  // IPv4-mapped ::ffff:a.b.c.d form.
+  try {
+    // Use URL parse trick: http://[::1]/ → hostname
+    const u = new URL(`http://[${raw}]/`);
+    const addr = u.hostname;
+    // net.isIPv6 validates and normalizes; but to avoid node:net, we rely
+    // on the URL parser having accepted it as a bracketed host. If the URL
+    // parse succeeded, the string is a valid IPv6 literal. Convert to bytes.
+    const parts = addr.split(":");
+    const bytes = new Uint8Array(16);
+    let byteIdx = 0;
+    let gapIdx = -1;
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i] === "") {
+        // :: gap
+        if (gapIdx >= 0) {
+          // multiple gaps — invalid, but URL parser wouldn't produce this
+          return null;
+        }
+        gapIdx = byteIdx;
+        continue;
+      }
+      const val = parseInt(parts[i], 16);
+      if (isNaN(val) || val < 0 || val > 0xffff) return null;
+      bytes[byteIdx++] = (val >> 8) & 0xff;
+      bytes[byteIdx++] = val & 0xff;
+    }
+    if (gapIdx >= 0) {
+      // Shift bytes to fill the gap
+      const filled = byteIdx;
+      const shift = 16 - filled;
+      for (let i = filled - 1; i >= gapIdx; i--) {
+        bytes[i + shift] = bytes[i];
+      }
+      for (let i = gapIdx; i < gapIdx + shift; i++) {
+        bytes[i] = 0;
+      }
+    }
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+/** Check an IPv6 address string against blocked ranges. */
+function assertSafeIPv6(
+  addr: string,
+  allowInsecureLocalHttp: boolean,
+): void {
+  const bytes = parseIPv6(addr);
+  if (!bytes) return; // unable to parse — skip (fetch will fail if truly invalid)
+
+  for (const block of BLOCKED_IPV6_RANGES) {
+    if (ipv6InBlock(bytes, block)) {
+      if (block.isLoopback && allowInsecureLocalHttp) {
+        return; // explicitly allowed for local dev
+      }
+      throw new ChatClientError(
+        `SSRF blocked: destination resolves to ${block.label} (${addr})`,
+        "ssrf",
+      );
+    }
+  }
+}
+
+/** True when `bytes` (16-byte IPv6) falls inside the given prefix block. */
+function ipv6InBlock(bytes: Uint8Array, block: typeof BLOCKED_IPV6_RANGES[number]): boolean {
+  const fullBytes = block.prefixLen >> 3;
+  for (let i = 0; i < fullBytes; i++) {
+    if (bytes[i] !== block.prefix[i]) return false;
+  }
+  const remainingBits = block.prefixLen & 7;
+  if (remainingBits > 0) {
+    const mask = 0xff << (8 - remainingBits);
+    if ((bytes[fullBytes] & mask) !== (block.prefix[fullBytes] & mask)) return false;
+  }
+  return true;
 }
 
 /**

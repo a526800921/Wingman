@@ -12,7 +12,7 @@
  *   - Model API unavailable/fails/non-JSON/schema invalid → normal result with fallback
  */
 
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { McpError, ErrorCode, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { AppConfig } from "../config.js";
 import { hasModelConfig, loadConfig, loadConfigFallback } from "../config.js";
 import { ChatClient } from "../chat-client.js";
@@ -61,18 +61,7 @@ export async function handleReviewDiff(
   // ---- 1. Validate input ----
   const validation = validateInput("aux_review_diff", input);
   if (!validation.ok) {
-    logger.warn("review-diff: input validation failed", {
-      error: validation.error,
-    });
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Input validation error: ${validation.error}`,
-        },
-      ],
-      isError: true,
-    };
+    throw new McpError(ErrorCode.InvalidParams, validation.error);
   }
 
   const validated = validation.data as ReviewDiffInput;
@@ -149,26 +138,26 @@ async function modelReview(
     throw new Error("Model response is not valid JSON");
   }
 
-  const outputValidation = validateOutput("aux_review_diff", parsed);
-  if (!outputValidation.ok) {
-    throw new Error(`Output schema validation failed: ${outputValidation.error}`);
-  }
-
-  const validatedOutput = outputValidation.data as ReviewDiffOutput;
-
-  logger.info("review-diff: model review succeeded", {
-    model: config.modelName,
-  });
-
-  // Override _meta with actual model info (the model may hallucinate its own _meta)
-  const outputData: ReviewDiffOutput = {
-    ...validatedOutput,
+  // Attach _meta before schema validation (model prompt does not include _meta)
+  const outputWithMeta = {
+    ...(parsed as Record<string, unknown>),
     _meta: {
       model: config.modelName,
       input_truncated: inputTruncated,
       fallback_used: false,
     },
   };
+
+  const outputValidation = validateOutput("aux_review_diff", outputWithMeta);
+  if (!outputValidation.ok) {
+    throw new Error(`Output schema validation failed: ${outputValidation.error}`);
+  }
+
+  const outputData = outputValidation.data as ReviewDiffOutput;
+
+  logger.info("review-diff: model review succeeded", {
+    model: config.modelName,
+  });
 
   return {
     content: [{ type: "text", text: JSON.stringify(outputData) }],

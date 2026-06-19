@@ -9,7 +9,7 @@
  *   4. Structured CallToolResult
  */
 
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { McpError, ErrorCode, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { AppConfig } from "../config.js";
 import { hasModelConfig, loadConfig, loadConfigFallback } from "../config.js";
 import { ChatClient } from "../chat-client.js";
@@ -44,13 +44,7 @@ export async function handleCompressText(
   // ---- 1. Validate input ----
   const inputResult = validateInput("aux_compress_text", input);
   if (!inputResult.ok) {
-    logger.warn("compress-text: input validation failed", {
-      error: inputResult.error,
-    });
-    return {
-      content: [{ type: "text", text: inputResult.error }],
-      isError: true,
-    };
+    throw new McpError(ErrorCode.InvalidParams, inputResult.error);
   }
 
   const data = inputResult.data as CompressTextValidatedInput;
