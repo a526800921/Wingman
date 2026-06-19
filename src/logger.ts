@@ -12,8 +12,10 @@ type LogLevel = (typeof LOG_LEVELS)[number];
 
 const MIN_LEVEL: LogLevel = (process.env.AUX_LOG_LEVEL as LogLevel) ?? "info";
 
-/** 日志文件路径，默认项目根目录 .aux-model.log */
-const LOG_FILE: string | null = (() => {
+/** 日志文件路径，第一次写日志时延迟解析（确保 .env 已加载）。 */
+let LOG_FILE: string | null | undefined = undefined;
+
+function resolveLogFilePath(): string | null {
   const envPath = process.env.AUX_LOG_FILE;
   if (envPath === "" || envPath === "off" || envPath === "false") return null;
   const filePath = envPath
@@ -24,18 +26,26 @@ const LOG_FILE: string | null = (() => {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     return filePath;
   } catch {
-    return null; // 目录不可写，禁用文件日志
+    return null;
   }
-})();
+}
+
+function getLogFile(): string | null {
+  if (LOG_FILE === undefined) {
+    LOG_FILE = resolveLogFilePath();
+  }
+  return LOG_FILE;
+}
 
 function levelRank(level: LogLevel): number {
   return LOG_LEVELS.indexOf(level);
 }
 
 function writeToFile(text: string): void {
-  if (!LOG_FILE) return;
+  const file = getLogFile();
+  if (!file) return;
   try {
-    appendFileSync(LOG_FILE, text + "\n", "utf-8");
+    appendFileSync(file, text + "\n", "utf-8");
   } catch {
     // 文件写入失败不阻塞 server
   }
@@ -129,5 +139,5 @@ export function logDuration(
 
 /** 日志文件路径（null 表示文件日志已禁用） */
 export function getLogFilePath(): string | null {
-  return LOG_FILE;
+  return getLogFile();
 }
