@@ -545,7 +545,10 @@ export class ChatClient {
       controller.abort();
     }, this.config.modelTimeoutMs);
 
-    logger.debug("chat request started", { model: this.config.modelName });
+    logger.info("chat request started", {
+      model: this.config.modelName,
+      promptLen: body.length,
+    });
 
     let response: Response;
     try {
@@ -650,6 +653,7 @@ export class ChatClient {
     const usage = bodyData.usage;
     logger.info("chat request completed", {
       model: bodyData.model ?? this.config.modelName,
+      responseLen: message.content.length,
       usage: usage
         ? {
             prompt_tokens: usage.prompt_tokens,

@@ -28,7 +28,7 @@ import {
   extractJsonFromResponse,
 } from "../prompts.js";
 import { reviewDiffFallback } from "../fallback/review-diff.js";
-import { logger } from "../logger.js";
+import { createTraceId, traceLogger, logDuration } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Config discrimination
@@ -58,6 +58,10 @@ export async function handleReviewDiff(
   input: unknown,
   config: ConfigLike,
 ): Promise<CallToolResult> {
+  const t0 = Date.now();
+  const tid = createTraceId();
+  const log = traceLogger(tid);
+
   // ---- 1. Validate input ----
   const validation = validateInput("aux_review_diff", input);
   if (!validation.ok) {
@@ -66,16 +70,28 @@ export async function handleReviewDiff(
 
   const validated = validation.data as ReviewDiffInput;
   const { diff: originalDiff, focus } = validated;
-  // max_chars is optional in the schema but Zod's .default() fills it at
-  // parse time; the fallback matches the schema default (60_000).
   const maxChars: number = validated.max_chars ?? 60_000;
+
+  log.info("review_diff start", {
+    diffLen: originalDiff.length,
+    focus: focus ?? undefined,
+    max_chars: maxChars,
+  });
+
+  try {
+    return await handleImpl();
+  } finally {
+    logDuration(tid, "review_diff done", t0);
+  }
+
+  async function handleImpl(): Promise<CallToolResult> {
 
   // ---- 2. Truncate diff if longer than max_chars ----
   const inputTruncated = originalDiff.length > maxChars;
   const diff = inputTruncated ? originalDiff.slice(0, maxChars) : originalDiff;
 
   if (inputTruncated) {
-    logger.warn("review-diff: diff truncated", {
+    log.warn("review-diff: diff truncated", {
       originalLength: originalDiff.length,
       maxChars,
     });
@@ -88,7 +104,7 @@ export async function handleReviewDiff(
     try {
       return await modelReview(config, diff, focus, inputTruncated);
     } catch (err: unknown) {
-      logger.warn(
+      log.warn(
         "review-diff: model path failed, falling back to heuristic",
         {
           error: err instanceof Error ? err.message : String(err),
@@ -97,7 +113,7 @@ export async function handleReviewDiff(
       // Fall through to fallback path
     }
   } else {
-    logger.info("review-diff: model not available, using heuristic fallback");
+    log.info("review-diff: model not available, using heuristic fallback");
   }
 
   // ---- 4. Heuristic fallback path ----
@@ -114,7 +130,7 @@ async function modelReview(
   focus: string | undefined,
   inputTruncated: boolean,
 ): Promise<CallToolResult> {
-  logger.info("review-diff: attempting model review", {
+  log.info("review-diff: attempting model review", {
     model: config.modelName,
   });
 
@@ -155,7 +171,7 @@ async function modelReview(
 
   const outputData = outputValidation.data as ReviewDiffOutput;
 
-  logger.info("review-diff: model review succeeded", {
+  log.info("review-diff: model review succeeded", {
     model: config.modelName,
   });
 
@@ -174,7 +190,7 @@ function heuristicReview(
   maxChars: number,
   inputTruncated: boolean,
 ): CallToolResult {
-  logger.info("review-diff: using heuristic fallback");
+  log.info("review-diff: using heuristic fallback");
 
   const fallbackResult = reviewDiffFallback(diff, maxChars);
 
@@ -192,4 +208,5 @@ function heuristicReview(
     content: [{ type: "text", text: JSON.stringify(outputData) }],
     isError: false,
   };
+  } // handleImpl
 }

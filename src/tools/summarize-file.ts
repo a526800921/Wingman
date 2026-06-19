@@ -26,7 +26,7 @@ import {
 import {
   summarizeFileFallback,
 } from "../fallback/summarize-file.js";
-import { logger } from "../logger.js";
+import { createTraceId, traceLogger, logDuration } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -82,6 +82,10 @@ export async function handleSummarizeFile(
   input: unknown,
   config: ReturnType<typeof loadConfig> | ReturnType<typeof loadConfigFallback>,
 ): Promise<CallToolResult> {
+  const t0 = Date.now();
+  const tid = createTraceId();
+  const log = traceLogger(tid);
+
   // ---- Step 1: validate input ----------------------------------------------
   const inputValidation = validateInput("aux_summarize_file", input);
   if (!inputValidation.ok) {
@@ -89,13 +93,26 @@ export async function handleSummarizeFile(
   }
   const validatedInput = inputValidation.data as SummarizeFileInput;
 
+  log.info("summarize_file start", {
+    path: validatedInput.path,
+    focus: validatedInput.focus ?? undefined,
+    max_chars: validatedInput.max_chars,
+  });
+
+  try {
+    return await handleImpl();
+  } finally {
+    logDuration(tid, "summarize_file done", t0);
+  }
+
+  async function handleImpl(): Promise<CallToolResult> {
   // ---- Step 2: resolve safe path -------------------------------------------
   let resolvedPath: string;
   try {
     resolvedPath = resolveSafePath(config.workspaceRoot, validatedInput.path);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.warn("summarize_file: path resolution failed", {
+    log.warn("summarize_file: path resolution failed", {
       userPath: validatedInput.path,
       error: message,
     });
@@ -109,13 +126,13 @@ export async function handleSummarizeFile(
   } catch (err: unknown) {
     const nodeErr = err as NodeJS.ErrnoException;
     if (nodeErr.code === "ENOENT") {
-      logger.info("summarize_file: file not found", {
+      log.info("summarize_file: file not found", {
         resolvedPath,
         userPath: validatedInput.path,
       });
       return errorResult(`File not found: ${validatedInput.path}`);
     }
-    logger.error("summarize_file: failed to read file", {
+    log.error("summarize_file: failed to read file", {
       resolvedPath,
       error: nodeErr.message,
     });
@@ -128,7 +145,7 @@ export async function handleSummarizeFile(
   const fileContent = inputTruncated ? rawText.slice(0, maxChars) : rawText;
 
   if (inputTruncated) {
-    logger.info("summarize_file: file truncated", {
+    log.info("summarize_file: file truncated", {
       path: validatedInput.path,
       originalLength: rawText.length,
       maxChars,
@@ -154,7 +171,7 @@ export async function handleSummarizeFile(
       inputTruncated,
     );
   } else {
-    logger.info("summarize_file: model not available, using fallback", {
+    log.info("summarize_file: model not available, using fallback", {
       path: validatedInput.path,
     });
     result = buildFallbackResult(
@@ -198,7 +215,7 @@ async function tryModelSummarization(
     try {
       parsed = JSON.parse(jsonString);
     } catch {
-      logger.warn(
+      log.warn(
         "summarize_file: model returned non-JSON, falling back to heuristic",
       );
       return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated);
@@ -217,14 +234,14 @@ async function tryModelSummarization(
     // Step 5g: validate output schema (after _meta is attached)
     const outputValidation = validateOutput("aux_summarize_file", outputWithMeta);
     if (!outputValidation.ok) {
-      logger.warn(
+      log.warn(
         "summarize_file: model output failed schema validation, falling back to heuristic",
         { error: outputValidation.error },
       );
       return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated);
     }
 
-    logger.info("summarize_file: model summarization succeeded", {
+    log.info("summarize_file: model summarization succeeded", {
       model: config.modelName,
       inputTruncated,
     });
@@ -239,7 +256,7 @@ async function tryModelSummarization(
           ? err.message
           : String(err);
 
-    logger.warn(
+    log.warn(
       "summarize_file: model call failed, falling back to heuristic",
       { error: message },
     );
@@ -275,7 +292,7 @@ function buildFallbackResult(
     // summarizeFileFallback itself failed — this is unexpected, but we
     // produce a minimal valid result rather than throwing.
     const message = err instanceof Error ? err.message : String(err);
-    logger.error("summarize_file: fallback summarizer itself failed", {
+    log.error("summarize_file: fallback summarizer itself failed", {
       error: message,
     });
     return {
@@ -319,4 +336,5 @@ function buildFallbackResult(
       fallback_used: true,
     },
   };
+  } // handleImpl
 }

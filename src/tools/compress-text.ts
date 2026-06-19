@@ -20,7 +20,7 @@ import {
   extractJsonFromResponse,
 } from "../prompts.js";
 import { compressTextFallback } from "../fallback/compress-text.js";
-import { logger } from "../logger.js";
+import { createTraceId, traceLogger, logDuration } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Input shape (after validation)
@@ -41,6 +41,10 @@ export async function handleCompressText(
   input: unknown,
   config: ReturnType<typeof loadConfig> | ReturnType<typeof loadConfigFallback>,
 ): Promise<CallToolResult> {
+  const t0 = Date.now();
+  const tid = createTraceId();
+  const log = traceLogger(tid);
+
   // ---- 1. Validate input ----
   const inputResult = validateInput("aux_compress_text", input);
   if (!inputResult.ok) {
@@ -48,6 +52,21 @@ export async function handleCompressText(
   }
 
   const data = inputResult.data as CompressTextValidatedInput;
+
+  log.info("compress_text start", {
+    label: data.label,
+    focus: data.focus ?? undefined,
+    textLen: data.text.length,
+    max_chars: data.max_chars,
+  });
+
+  try {
+    return await handleImpl();
+  } finally {
+    logDuration(tid, "compress_text done", t0);
+  }
+
+  async function handleImpl(): Promise<CallToolResult> {
 
   // ---- 2. Truncate text if longer than max_chars ----
   const maxChars = data.max_chars ?? 80_000;
@@ -86,11 +105,11 @@ async function tryModelCompression(
   const client = new ChatClient(appConfig);
 
   if (!client.isAvailable()) {
-    logger.info("compress-text: ChatClient not available, using fallback");
+    log.info("compress-text: ChatClient not available, using fallback");
     return null;
   }
 
-  logger.info("compress-text: attempting model-based compression", {
+  log.info("compress-text: attempting model-based compression", {
     model: appConfig.modelName,
     label: data.label,
     textLen: text.length,
@@ -116,7 +135,7 @@ async function tryModelCompression(
     try {
       parsed = JSON.parse(jsonStr);
     } catch (parseErr) {
-      logger.warn(
+      log.warn(
         "compress-text: model response is not valid JSON, falling back to heuristic",
         {
           error: parseErr instanceof Error ? parseErr.message : String(parseErr),
@@ -129,7 +148,7 @@ async function tryModelCompression(
     // The model's output schema (from the system prompt) does NOT include
     // `_meta` — we must attach it ourselves before validation.
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      logger.warn(
+      log.warn(
         "compress-text: model response is not a JSON object, falling back",
       );
       return null;
@@ -145,14 +164,14 @@ async function tryModelCompression(
     // Validate the combined output against the full CompressTextOutput schema
     const outputResult = validateOutput("aux_compress_text", parsed);
     if (!outputResult.ok) {
-      logger.warn(
+      log.warn(
         "compress-text: model output failed schema validation, falling back",
         { error: outputResult.error },
       );
       return null;
     }
 
-    logger.info("compress-text: model-based compression succeeded", {
+    log.info("compress-text: model-based compression succeeded", {
       model: appConfig.modelName,
     });
 
@@ -163,7 +182,7 @@ async function tryModelCompression(
   } catch (err: unknown) {
     // Any exception (timeout, HTTP error, SSRF, network, etc.) triggers
     // fallback — the model path must never surface an error to the caller.
-    logger.warn("compress-text: model compression threw, using fallback", {
+    log.warn("compress-text: model compression threw, using fallback", {
       error: err instanceof Error ? err.message : String(err),
     });
     return null;
@@ -180,7 +199,7 @@ function buildFallbackResult(
   maxChars: number,
   inputTruncated: boolean,
 ): CallToolResult {
-  logger.info("compress-text: using heuristic fallback compression", {
+  log.info("compress-text: using heuristic fallback compression", {
     label,
     textLen: text.length,
   });
@@ -202,7 +221,7 @@ function buildFallbackResult(
   // fallback is designed to match the schema).
   const outputResult = validateOutput("aux_compress_text", outputData);
   if (!outputResult.ok) {
-    logger.error(
+    log.error(
       "compress-text: fallback output failed schema validation (unexpected)",
       { error: outputResult.error },
     );
@@ -219,4 +238,5 @@ function buildFallbackResult(
     ],
     isError: false,
   };
+  } // handleImpl
 }

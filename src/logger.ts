@@ -5,6 +5,7 @@
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { randomBytes } from "node:crypto";
 
 const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 type LogLevel = (typeof LOG_LEVELS)[number];
@@ -49,7 +50,6 @@ function log(level: LogLevel, msg: string, data?: unknown): void {
   writeToFile(line);
 
   if (data !== undefined) {
-    // 浅层序列化，避免完整输出大对象
     const safe =
       typeof data === "string"
         ? data.slice(0, 500)
@@ -88,7 +88,46 @@ export const logger = {
   },
 };
 
-/** 日志文件路径（null 表示文件日志已禁用），供外部读取/展示 */
+// ---------------------------------------------------------------------------
+// Trace helpers — 每次 tool 调用生成唯一 trace id，贯穿整个调用链
+// ---------------------------------------------------------------------------
+
+/** 8 字符 hex trace ID */
+export function createTraceId(): string {
+  return randomBytes(4).toString("hex");
+}
+
+/** 带 trace id 的 logger，保持与 logger 完全相同的签名 */
+export function traceLogger(traceId: string) {
+  const prefix = `[${traceId}]`;
+  return {
+    debug(msg: string, data?: unknown) {
+      log("debug", `${prefix} ${msg}`, data);
+    },
+    info(msg: string, data?: unknown) {
+      log("info", `${prefix} ${msg}`, data);
+    },
+    warn(msg: string, data?: unknown) {
+      log("warn", `${prefix} ${msg}`, data);
+    },
+    error(msg: string, data?: unknown) {
+      log("error", `${prefix} ${msg}`, data);
+    },
+  };
+}
+
+/** 计算并记录耗时（毫秒），返回耗时数值 */
+export function logDuration(
+  traceId: string,
+  label: string,
+  startMs: number,
+): number {
+  const elapsed = Date.now() - startMs;
+  log("info", `[${traceId}] ${label} — ${elapsed}ms`);
+  return elapsed;
+}
+
+/** 日志文件路径（null 表示文件日志已禁用） */
 export function getLogFilePath(): string | null {
   return LOG_FILE;
 }
