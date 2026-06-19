@@ -207,7 +207,7 @@ const REVIEW_DIFF_OUTPUT_SCHEMA = {
 const REVIEW_DIFF_TOOL_DEFINITION = {
   name: "aux_review_diff",
   description:
-    "对 unified diff 做第一轮风险扫描。适合提交前快速扫查，不适合最终 review 决策或安全审计。结果是辅助性、非权威的——Claude Code 仍负责最终 review。",
+    "对 unified diff 做提交前 checklist 式审查。像 junior 拿着清单逐项打勾——确保没有遗漏明显的检查项，而非替代你的判断。适合快速扫查，不适合最终 review 决策或安全审计。结果是辅助性、非权威的——Claude Code 仍负责最终 review。",
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,

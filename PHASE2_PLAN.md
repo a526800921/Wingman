@@ -28,6 +28,9 @@
 - 当输入被截断或上下文不完整时，输出必须降级为“需要回查”，不能做强断言。
 - fallback 与模型输出保持同构。
 - 所有工具继续支持无模型 fallback。
+- Zod 运行时 schema、MCP `tools/list` JSON schema、prompt 输出 schema 必须保持一致。
+- 被省略的文件、chunk、错误块必须在输出中可见，不能只给省略数量。
+- evidence 保留诊断价值，但必须脱敏明显 secret。
 
 ## 1. 统一分块 / 聚合框架
 
@@ -74,10 +77,20 @@ type InputChunk = {
   truncated: boolean;
 };
 
+type OmittedChunk = {
+  id: string;
+  label: string;
+  source?: string;
+  reason: string;
+  start_line?: number;
+  end_line?: number;
+};
+
 type ChunkMeta = {
   total_chunks: number;
   analyzed_chunks: number;
   omitted_chunks: number;
+  omitted: OmittedChunk[];
   input_truncated: boolean;
   chunking_strategy: string;
 };
@@ -106,6 +119,19 @@ diff --git / --- +++ boundary
 - added / removed / context 行
 - chunk id
 
+当 `max_files` 或字符上限触发省略时，必须记录省略明细。不能只记录数量。
+
+文件分析优先级：
+
+1. manifest / lock / dependency 文件，例如 `package.json`、`pnpm-lock.yaml`、`requirements.txt`、`Cargo.toml`。
+2. 安全敏感路径，例如 `auth`、`permission`、`security`、`token`、`secret`、`crypto`。
+3. 源码文件。
+4. 测试文件。
+5. 文档和配置文件。
+6. 二进制或无法解析文件。
+
+所有文件 header 都应尽量保留；未分析文件进入 `omitted_files` 和 `_meta.chunking.omitted`。
+
 #### 命令输出
 
 按输出类型识别：
@@ -133,6 +159,21 @@ diff --git / --- +++ boundary
 - 保留最高 severity。
 - 保留每条 finding 的 evidence。
 - 在 `_meta` 中记录 chunk 统计。
+
+finding 去重 identity：
+
+```text
+normalized risk/kind + file + hunk/location + normalized evidence
+```
+
+不能只按 `risk` 文案去重，避免不同文件中的同类问题被错误合并。
+
+排序规则：
+
+1. severity 降序：critical > high > medium > low。
+2. confidence 降序：high > medium > low。
+3. `introduced_by_diff: true` 优先。
+4. 原始出现顺序。
 
 ### 验收标准
 
@@ -229,7 +270,9 @@ type AuxReviewDiffByFileOutput = {
   - 不输出高置信度全局控制流判断。
   - 增加 uncertainty。
 - 对同一风险跨文件重复出现时，在 `top_risks` 中去重。
+- `top_risks` 默认最多返回 10 条，并按 severity、confidence、introduced_by_diff、出现顺序排序。
 - `focus` 必须使用不可信数据分隔符包裹。
+- `max_files` 命中限制时，必须按文件分析优先级选择文件，并把省略文件写入 `omitted_files`。
 
 ### fallback 要求
 
@@ -306,11 +349,14 @@ type CommandOutputFinding = {
     | "info"
     | "unknown";
   message: string;
+  error_code?: string;
+  rule_id?: string;
   file?: string;
   line?: number;
   column?: number;
   evidence: string;
   confidence: "low" | "medium" | "high";
+  first_seen_index?: number;
 };
 
 type AuxCompressCommandOutputOutput = {
@@ -346,9 +392,13 @@ type AuxCompressCommandOutputOutput = {
   - stack trace 顶部和业务代码帧
   - failed test name
   - TypeScript error code
+- 对 ESLint / stylelint / biome 等 lint 输出保留 `rule_id`。
+- 对 tsc / runtime / test framework 错误保留 `error_code`。
+- `first_seen_index` 记录错误在原始输出中的相对出现顺序，merge 后仍可确定首个失败点。
 - 重复错误要归并。
 - `suggested_next_commands` 只能建议验证命令，不做 destructive 命令。
 - `focus` 必须使用不可信数据分隔符包裹。
+- `evidence` 必须脱敏明显 secret，例如 bearer token、API key、URL credentials、`.env` 样式密钥值。
 
 ### fallback 规则
 
@@ -407,6 +457,7 @@ ERROR / WARN / FATAL / Exception / Timeout
 - 模型调用 stateless。
 - 模型输出必须 JSON parse + schema 校验。
 - schema 校验失败自动 fallback。
+- 用户输入中如果包含分隔符本身，必须进行 marker collision 处理，不能让输入提前关闭数据块。
 
 推荐分隔符：
 
@@ -419,6 +470,27 @@ ERROR / WARN / FATAL / Exception / Timeout
 ...
 <<<FOCUS_DATA_END>>>
 ```
+
+marker collision 处理要求：
+
+- 对用户输入中的 `<<<USER_CONTENT_END>>>`、`<<<FOCUS_DATA_END>>>` 等 marker 做替换或转义。
+- 测试覆盖正文和 focus 中伪造 marker 的情况。
+- system prompt 明确说明 content 和 focus 都是数据，不是指令。
+
+## Schema 同步要求
+
+二期输出结构更复杂，必须避免三套 schema 漂移：
+
+1. Zod 运行时 schema：`src/schema.ts`
+2. MCP `tools/list` JSON schema：`src/index.ts` 或 schema 导出模块
+3. prompt 中展示给模型的输出 schema：`src/prompts.ts`
+
+要求：
+
+- 新增工具时同步更新三处 schema。
+- 优先从单一 schema 定义导出 MCP JSON schema，减少手写漂移。
+- 如果暂时继续手写，必须添加协议级测试，检查 `tools/list` 中字段与 Zod 输出字段一致。
+- prompt schema 不能缺少运行时必填字段；如果 `_meta` 由 server 注入，prompt 中要明确模型不要输出 `_meta`，server 会补齐。
 
 ## MCP 协议要求
 
@@ -436,6 +508,15 @@ annotations: {
 
 - `inputSchema`
 - `outputSchema`
+
+协议级测试必须覆盖：
+
+- `tools/list` 包含 `aux_review_diff_by_file` 和 `aux_compress_command_output`。
+- 新工具 annotations 正确。
+- 新工具 `inputSchema` 存在。
+- 新工具 `outputSchema` 存在。
+- 无模型配置时仍可通过 `tools/call` 返回合法 fallback 结构。
+- 模型输出非 JSON 或 schema 不合法时自动 fallback。
 
 ## 测试计划
 
@@ -455,8 +536,9 @@ annotations: {
 
 - 多文件 diff 能拆成多个 file chunk。
 - 单文件超大 diff 能拆成 hunk chunk。
+- binary diff、rename-only diff、新增文件、删除文件均有明确 chunk 表示。
 - 长命令输出能保留后部错误。
-- omitted chunk 会进入 `_meta.chunking`。
+- omitted chunk 会进入 `_meta.chunking.omitted`，并包含 reason。
 
 #### `aux_review_diff_by_file`
 
@@ -468,11 +550,20 @@ annotations: {
 #### `aux_compress_command_output`
 
 - TypeScript 错误提取成功。
+- TypeScript 错误包含 `error_code`。
 - ESLint 错误提取成功。
+- ESLint 错误包含 `rule_id`。
 - Vitest/Jest failed test 提取成功。
 - Stack trace 第一业务帧提取成功。
 - 重复错误归并成功。
 - fallback 模式可用。
+- evidence 中的明显 secret 被脱敏。
+
+#### 协议
+
+- `tools/list` 中两个新工具存在。
+- 两个新工具都有 `inputSchema`、`outputSchema`、`readOnlyHint`、`destructiveHint: false`、`openWorldHint`。
+- MCP JSON schema、Zod schema、prompt schema 不出现明显字段漂移。
 
 ### 验收命令
 
@@ -483,15 +574,18 @@ npm test
 
 ## 推荐实施顺序
 
-1. 先实现 focus 数据块，避免新增工具继续复制旧 prompt 风险。
-2. 实现 `src/chunking/types.ts`、`diff.ts`、`command-output.ts`。
-3. 扩展 schema：`PossibleRisk` 增加 evidence / confidence / introduced_by_diff。
-4. 实现 `aux_review_diff_by_file` fallback。
-5. 接入模型路径和 schema 校验。
-6. 实现 `aux_compress_command_output` fallback。
-7. 接入模型路径和 schema 校验。
-8. 更新 README：小 diff / 大 diff / 命令输出的推荐使用方式。
-9. 补测试，运行 build/test。
+1. 先统一 schema 同步策略，明确 Zod、MCP JSON schema、prompt schema 的来源和测试。
+2. 实现 focus 数据块和 marker collision 处理，避免新增工具复制旧 prompt 风险。
+3. 实现 `src/chunking/types.ts`、`diff.ts`、`command-output.ts`，包含 omitted 明细。
+4. 拆出 `src/fallback/review-diff.ts` 中的 diff 解析、hunk 定位、风险检测公共逻辑。
+5. 拆出 `src/fallback/compress-text.ts` 中的关键词、路径提取、行评分、去重公共逻辑。
+6. 实现 `aux_review_diff_by_file` fallback 和聚合规则。
+7. 接入 `aux_review_diff_by_file` 模型路径和 schema 校验。
+8. 实现 `aux_compress_command_output` fallback。
+9. 接入 `aux_compress_command_output` 模型路径和 schema 校验。
+10. 新增 tools/list 协议级测试。
+11. 更新 README：小 diff / 大 diff / 命令输出的推荐使用方式。
+12. 补测试，运行 build/test。
 
 ## 二期完成标准
 

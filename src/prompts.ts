@@ -230,6 +230,7 @@ CRITICAL RULES FOR RISK JUDGMENT:
 - Use "Check whether ..." instead of "This function ..." when context is incomplete.
 - For return-path analysis, loop termination, and compatibility claims: default to confidence "low" or "medium".
 - If input was truncated (see _meta), do NOT make global control-flow conclusions.
+- Do NOT report the same finding multiple times across files. If a pattern repeats, mention it once with all affected locations.
 
 Recommended phrasing:
   "Check whether all code paths return or throw."
