@@ -159,6 +159,7 @@ async function tryModelCompression(
       return null;
     }
 
+    (parsed as Record<string, unknown>).is_authoritative = false;
     (parsed as Record<string, unknown>)._meta = {
       provider,
       model: appConfig.modelName,

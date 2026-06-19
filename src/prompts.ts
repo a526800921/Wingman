@@ -312,18 +312,17 @@ export function extractJsonFromResponse(raw: string): string {
     return plainFenceMatch[1].trim();
   }
 
-  // Case 4: JSON object embedded in surrounding text
+  // Case 4: JSON object embedded in surrounding text (Chinese/intro text common)
   const firstBrace = trimmed.indexOf("{");
   const lastBrace = trimmed.lastIndexOf("}");
   if (firstBrace !== -1 && lastBrace > firstBrace) {
     const candidate = trimmed.slice(firstBrace, lastBrace + 1);
-    // Only extract if the braces enclose the majority of the text or the
-    // JSON appears to be the meaningful payload.
+    // Only accept if it looks like the bulk of the content is JSON
     if (candidate.length > trimmed.length * 0.5) {
       return candidate;
     }
   }
 
-  // Case 5: fallback — return raw so caller can attempt parse and log
+  // Fallback: return as-is (caller will attempt parse and fallback on failure)
   return trimmed;
 }

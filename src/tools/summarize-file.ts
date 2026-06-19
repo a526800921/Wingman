@@ -228,9 +228,10 @@ async function tryModelSummarization(
       return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated, provider);
     }
 
-    // Step 5f: attach _meta (model prompt does not include _meta)
+    // Step 5f: attach _meta + force is_authoritative (model prompt does not include _meta)
     const outputWithMeta = {
       ...(parsed as Record<string, unknown>),
+      is_authoritative: false,
       _meta: {
         provider,
         model: config.modelName,

@@ -297,6 +297,7 @@ async function modelReview(
   // Attach _meta before schema validation (model prompt does not include _meta)
   const outputWithMeta = {
     ...(parsed as Record<string, unknown>),
+    is_authoritative: false,
     _meta: {
       provider,
       model: config.modelName,
