@@ -3,3 +3,6 @@ dist/
 .env
 *.tsbuildinfo
 .aux-model.log
+CLAUDE.md
+AGENTS.md
+.claude/
