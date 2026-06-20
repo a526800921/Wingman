@@ -16,6 +16,11 @@
 
 ```text
 ADR-0001 模型优先
+  ├─ Phase 3 方向草案（待具体设计）
+  │   ├─ Schema 单一来源
+  │   ├─ 自动回放评测平台
+  │   ├─ diff 工具入口收敛
+  │   └─ aux_compare_runs
   ├─ 全工具模型优先评审（战略设计）
   │   ├─ shared model-runtime（部分完成）
   │   ├─ summarize_file 施工计划
@@ -52,6 +57,7 @@ ADR-0001 模型优先
 | 文档 | 类型 | 状态 | 依赖/被替代关系 |
 |---|---|---|---|
 | `docs/adr/0001-model-first.md` | ADR | Accepted | 全部模型型工具的上位约束 |
+| `PHASE3_PLAN.md` | 战略设计草案 | 待具体设计 | 依赖二期可靠性闭环；下次拆分为独立施工计划 |
 | `docs/model-first-all-tools-review-plan.md` | 战略设计 | Active | 必须拆成专项施工计划后实施 |
 | `docs/model-first-command-output-plan.md` | 专项设计 | 部分完成 | 依赖 ADR-0001；由多个 command-output 施工方案支撑 |
 | `docs/phase2-tools-fix-plan.md` | 施工/设计混合 | 大部分完成 | 早期 diagnostic 与 batch 方案；后续细节由回归/payload 计划覆盖 |
