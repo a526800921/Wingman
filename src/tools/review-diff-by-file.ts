@@ -124,7 +124,17 @@ export async function handleReviewDiffByFile(
       const fb = reviewDiffByFileFallback(originalDiff, max_chars_per_file, max_files);
       const fbFindings: DiffFinding[] = [];
       for (const fr of fb.files) for (const f of fr.findings) fbFindings.push({ risk: f.risk, severity: f.severity, file: f.file, hunk: f.hunk, location: f.location, explanation: f.explanation, evidence: f.evidence, introduced_by_diff: f.introduced_by_diff, confidence: f.confidence ?? "medium" });
-      return { content: [{ type: "text", text: JSON.stringify({ ...fb, top_risks: fbFindings.slice(0, 10), _meta: { provider, model: "heuristic", tokens_used: 0, input_truncated: meta.input_truncated, fallback_used: true, chunking: meta } }) }], isError: false };
+      const dedupedFb = deduplicateFindings(fbFindings, buildFindingIdentity);
+      const sortedFb = sortFindings(dedupedFb);
+      const outFb: ReviewDiffByFileOutput = {
+        overall_summary: fb.overall_summary,
+        files: fb.files,
+        top_risks: sortedFb.slice(0, 10),
+        omitted_files: fb.omitted_files,
+        is_authoritative: false,
+        _meta: { provider, model: "heuristic", tokens_used: 0, input_truncated: meta.input_truncated, fallback_used: true, chunking: meta },
+      };
+      return { content: [{ type: "text", text: JSON.stringify(outFb) }], isError: false };
     }
 
     return { content: [{ type: "text", text: JSON.stringify(outValidation.data) }], isError: false };

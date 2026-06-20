@@ -7,11 +7,7 @@
 import { chunkDiff } from "../chunking/diff.js";
 import type { InputChunk, ChunkMeta } from "../chunking/types.js";
 import { logger } from "../logger.js";
-import {
-  isBinaryFile,
-  parseHunks,
-  BINARY_EXTENSIONS,
-} from "./review-diff.js";
+import { parseHunks } from "./review-diff.js";
 
 export interface FileReview {
   file: string;
