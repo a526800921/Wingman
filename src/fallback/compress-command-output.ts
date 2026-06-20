@@ -19,6 +19,8 @@ export interface CommandOutputFinding {
   evidence: string;
   confidence: "low" | "medium" | "high";
   first_seen_index?: number;
+  /** Opaque diagnostic ID from parser — used for exact overlay matching. Stripped before output. */
+  _diagnostic_id?: string;
 }
 
 export interface CompressCommandOutputFallbackResult {
@@ -34,8 +36,8 @@ export interface CompressCommandOutputFallbackResult {
 
 /**
  * Convert a CommandDiagnostic (from the shared parser) to a CommandOutputFinding.
- * source_kind / actionability are not stored on the finding (strict schema won't
- * accept unknown fields); they are used only for sorting suggestions.
+ * _diagnostic_id is carried through for exact overlay matching in the model path.
+ * It is stripped before public schema validation (strict schema rejects unknown keys).
  */
 function diagnosticToFinding(d: CommandDiagnostic): CommandOutputFinding {
   return {
@@ -49,6 +51,7 @@ function diagnosticToFinding(d: CommandDiagnostic): CommandOutputFinding {
     evidence: d.evidence,
     confidence: d.parser_confidence === "high" ? "high" : d.parser_confidence === "medium" ? "medium" : "low",
     first_seen_index: d.first_seen_index,
+    _diagnostic_id: d.id,
   };
 }
 
@@ -238,6 +241,7 @@ export function compressCommandOutputFallback(
   const exitLabel = exitCode !== undefined ? ` (exit code: ${exitCode})` : "";
   const summary =
     `${commandLabel}${exitLabel}: Detected "${kind}". ` +
+    `Parsed ${deduped.length} diagnostics, retained ${deduped.length} findings. ` +
     `${errorCount} error(s), ${warnCount} warning(s). ` +
     (firstFailure ? `First failure: ${firstFailure.message}. ` : "") +
     (repeatedErrors.length > 0 ? `${repeatedErrors.length} repeated error pattern(s).` : "");

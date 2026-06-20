@@ -3,8 +3,8 @@
   "command": "npx tsc --noEmit",
   "exit_code": 2,
   "expected": {
-    "diagnostics": 4,
-    "findings": 4,
+    "diagnostics_parsed": 4,
+    "findings_retained": 4,
     "must_include_codes": ["TS2344", "TS2322", "TS2345"],
     "must_include_files": ["src/models.ts", "src/types.ts", "src/handler.ts"],
     "must_not_include_evidence": ["Found 4 errors"],

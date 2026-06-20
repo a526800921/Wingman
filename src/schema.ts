@@ -302,6 +302,7 @@ export const CompressCommandOutputOutput = authoritativeMarker.merge(
   z.strictObject({
     summary: z.string(),
     first_failure: CommandOutputFindingSchema.optional(),
+    primary_actionable_failure: CommandOutputFindingSchema.optional(),
     findings: z.array(CommandOutputFindingSchema),
     repeated_errors: z.array(RepeatedErrorSchema),
     suggested_source_checks: z.array(z.string()),
@@ -314,12 +315,18 @@ export const CompressCommandOutputOutput = authoritativeMarker.merge(
       input_truncated: z.boolean(),
       fallback_used: z.boolean(),
       chunking: ChunkMetaSchema,
-      // Phase 2 batch/model metadata (optional, populated when model path used)
+      // Canonical counts
+      diagnostics_parsed: z.number().int().nonnegative().optional(),
+      findings_retained: z.number().int().nonnegative().optional(),
+      // Batch/model metadata (optional, populated when model path used)
       candidate_batches: z.number().int().nonnegative().optional(),
       batches_sent: z.number().int().nonnegative().optional(),
       batches_succeeded: z.number().int().nonnegative().optional(),
       batches_failed: z.number().int().nonnegative().optional(),
       batches_omitted_by_budget: z.number().int().nonnegative().optional(),
+      model_findings_received: z.number().int().nonnegative().optional(),
+      model_enhancements_applied: z.number().int().nonnegative().optional(),
+      unknown_diagnostic_ids: z.number().int().nonnegative().optional(),
     }),
   }),
 );

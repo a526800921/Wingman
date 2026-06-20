@@ -79,29 +79,29 @@ export function chunkCommandOutput(
       return;
     }
 
-    // Group diagnostics into batches by character budget (for model consumption)
-    // Each batch is a JSON-serialized array of diagnostic summary objects
+    // Group diagnostics into batches by character budget (for model consumption).
+    // Each batch is a JSON-serialized array of compact diagnostic objects.
+    // P0-3: MAX_PER_BATCH is a safety cap only; splitting is driven by payload size.
     const MAX_BATCH_CHARS = 6000;
-    const MAX_PER_BATCH = 8;
+    const MAX_PER_BATCH = 20;
     let batch: CommandDiagnostic[] = [];
     let batchChars = 0;
 
+    /** Compact diagnostic for model input — no evidence (server-side only). */
+    const toCompactDiag = (d: CommandDiagnostic) => ({
+      id: d.id,
+      file: d.file,
+      line: d.line,
+      column: d.column,
+      error_code: d.error_code,
+      headline: d.headline,
+      details: d.details.slice(0, 5),
+      source_kind: d.source_kind,
+    });
+
     const flushBatch = () => {
       if (batch.length === 0) return;
-      const json = JSON.stringify(batch.map(d => ({
-        id: d.id,
-        kind: d.kind,
-        file: d.file,
-        line: d.line,
-        column: d.column,
-        error_code: d.error_code,
-        headline: d.headline,
-        details: d.details.slice(0, 5),  // limit detail lines per diagnostic in batch
-        evidence: d.evidence,
-        source_kind: d.source_kind,
-        actionability: d.actionability,
-        parser_confidence: d.parser_confidence,
-      })));
+      const json = JSON.stringify(batch.map(toCompactDiag));
       chunks.push({
         id: `chunk-${chunkId++}`,
         kind: "command-section",
@@ -114,19 +114,9 @@ export function chunkCommandOutput(
     };
 
     for (const d of diagnostics) {
-      const dJson = JSON.stringify({
-        id: d.id,
-        kind: d.kind,
-        file: d.file,
-        line: d.line,
-        column: d.column,
-        error_code: d.error_code,
-        headline: d.headline,
-        evidence: d.evidence,
-        source_kind: d.source_kind,
-      });
-      const dChars = dJson.length;
+      const dChars = JSON.stringify(toCompactDiag(d)).length;
 
+      // Safety cap (MAX_PER_BATCH) OR character budget exceeded
       if (batch.length >= MAX_PER_BATCH || (batchChars + dChars > MAX_BATCH_CHARS && batch.length > 0)) {
         flushBatch();
       }

@@ -22,14 +22,19 @@ export interface CommandOutputExpectation {
   command?: string;
   exit_code?: number;
   expected: {
-    diagnostics?: number;
-    findings?: number;
+    diagnostics_parsed?: number;
+    findings_retained?: number;
     must_include_codes?: string[];
     must_include_files?: string[];
+    must_include_locations?: string[];
     must_not_include_evidence?: string[];
     generated_findings?: number;
+    first_failure_file?: string;
+    first_failure_line?: number;
+    first_failure_code?: string;
     max_structure_only_model_calls?: number;
     max_enrichment_model_calls?: number;
+    max_batches_sent?: number;
   };
 }
 

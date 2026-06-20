@@ -197,15 +197,16 @@ split → analyze chunk → merge → final result
 
 ### 三期改进（当前）
 
-在分块框架基础上进一步优化了正确性和延迟：
+在分块框架基础上进一步优化了正确性、延迟和模型成本：
 
 - **TS diagnostic 状态机解析器**（`src/diagnostics/tsc-parser.ts`）：逐行解析 `tsc --noEmit` 输出，将错误首行 + 缩进 detail + code frame 合并为完整 diagnostic 块，支持 pretty 格式和 ANSI 颜色码。消除了一期"14 个真实错误被拆成 23 个 chunk"的问题。
-- **模型批处理**：确定性解析器可直接产出完整结果（如 tsc 高置信度 diagnostic），模型仅在需要语义增强时按 batch（4-8 个 diagnostic/批）调用，默认上限 5 次调用，受限并发 2。
-- **统一聚合流水线**：所有派生字段（`summary`、`first_failure`、`repeated_errors`、`suggested_source_checks`）基于最终 findings 重新计算，模型结果与启发式结果口径一致。
+- **Overlay 模型增强**：模型按 opaque `diagnostic_id` 精确匹配 canonical finding，仅覆盖允许增强的字段（message、confidence、actionability），不删除、不复制、不错配确定性字段。模型返回 9/14 条时最终仍保留 14 条。
+- **紧凑模型 payload**：模型输入不发送 `evidence`（与 headline/details 重复），仅发送 `id` + `file` + `line` + `column` + `error_code` + `headline` + `details` + `source_kind`，payload 大幅缩小。
+- **按需调用模型**：`focus: "errors only"` 或高置信度 parser 场景跳过模型（0 次调用）；需要语义增强时 14 个 diagnostics 合并为 1 个 batch（原来 2 个）。
 - **文件级聚合**（`aux_review_diff_by_file`）：模型路径下 `files` 数组完整填充，可按文件区分"已分析/无问题/省略/截断"状态。
-- **可操作性排序**：`suggested_source_checks` 按项目源码优先于生成文件/依赖排列，每文件去重。
+- **可操作性排序**：`suggested_source_checks` 按项目源码优先于生成文件/依赖排列，`primary_actionable_failure` 指向最值得优先修复的错误。
 
-> 设计文档：[Phase 2 修复方案](docs/phase2-tools-fix-plan.md) · [真实场景验证方案](docs/phase2-tools-validation-plan.md) · [P0 落地方案](docs/phase2-validation-p0-plan.md)
+> 设计文档：[Phase 2 修复方案](docs/phase2-tools-fix-plan.md) · [回归修复方案](docs/chunk-optimization-regression-fix-plan.md) · [模型 payload 优化](docs/command-output-model-payload-plan.md) · [验证方案](docs/phase2-tools-validation-plan.md) · [P0 落地](docs/phase2-validation-p0-plan.md)
 
 ### 文档索引
 
@@ -217,6 +218,8 @@ split → analyze chunk → merge → final result
 | 分块框架 / Diff 按文件审查 | [PHASE2_PLAN.md](PHASE2_PLAN.md) | 二期计划：`aux_review_diff_by_file`、`aux_compress_command_output`、统一分块/聚合 |
 | 二期实施步骤 / chunking 模块 | [phase2-implementation](docs/superpowers/plans/2026-06-20-phase2-implementation.md) | 分阶段实施细节、测试策略、subagent 并行开发 |
 | Diagnostic 解析 / 14→20 错误拆分 | [修复方案](docs/phase2-tools-fix-plan.md) | 状态机 parser 设计、batch 策略、`_meta` 字段、回归测试矩阵 |
+| 数据完整性 / overlay / diagnostic_id | [回归修复](docs/chunk-optimization-regression-fix-plan.md) | canonical finding 不变量、overlay vs 替换、精确 ID 映射、派生字段语义 |
+| 模型 payload 精简 / 单批策略 | [payload 优化](docs/command-output-model-payload-plan.md) | 紧凑诊断格式、enrichment 决策、按 payload 分批、enrichment 参数 |
 | 验证体系 / 样本回放 / 契约断言 | [验证方案](docs/phase2-tools-validation-plan.md) | 真实场景验证框架、匿名化样本库 |
 | P0 落地 / 模型预算 / CI 阻断 | [P0 落地方案](docs/phase2-validation-p0-plan.md) | 最小可落地的验证和预算控制
 

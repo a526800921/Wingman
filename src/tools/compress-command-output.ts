@@ -30,9 +30,52 @@ function hasApiKey(config: ConfigLike): config is AppConfig {
 
 // ── Batching config ───────────────────────────────────────
 
-const BATCH_MAX_DIAGNOSTICS = 8;
+const BATCH_MAX_DIAGNOSTICS = 20;
 const BATCH_MAX_CHARS = 6000;
 const MAX_MODEL_CALLS = 5;
+
+// ── Enrichment decision ───────────────────────────────────
+
+type EnrichmentMode = "off" | "on";
+
+/**
+ * Decide whether to call model for semantic enrichment.
+ *
+ * "off" (skip model):
+ *   - focus is "errors only" / "structure" → structure-only request
+ *   - all findings have _diagnostic_id (high confidence parser)
+ *
+ * "on" (call model):
+ *   - focus has "root cause", "priority", "impact", "fix", "explain"
+ *   - unknown output kind
+ */
+function getEnrichmentMode(
+  focus: string | undefined,
+  outputKind: string,
+  findings: CommandOutputFinding[],
+): EnrichmentMode {
+  // Explicit structure-only request → skip model
+  if (focus && /\b(errors?\s*only|structure(d)?\s*only|list\s*only)\b/i.test(focus)) {
+    return "off";
+  }
+
+  // Explicit enrichment request → call model
+  if (focus && /\b(root\s*cause|priority|impact|fix|explain|enrich|semantic)\b/i.test(focus)) {
+    return "on";
+  }
+
+  // For well-structured output with high-confidence parser → skip
+  if (outputKind === "tsc_error" && findings.length > 0 && findings.every(f => f._diagnostic_id)) {
+    return "off";
+  }
+
+  // Unknown/generic output → benefit from model
+  if (outputKind === "generic_log") {
+    return "on";
+  }
+
+  return "off";
+}
 
 export async function handleCompressCommandOutput(
   input: unknown,
@@ -58,31 +101,37 @@ export async function handleCompressCommandOutput(
     const modelAvailable = hasModelConfig() && hasApiKey(config);
     const outputKind = detectOutputKind(output);
 
-    // Step 1: Always run deterministic fallback for findings
+    // Step 1: Always run deterministic fallback → canonical findings
     const fb = compressCommandOutputFallback(command, output, exit_code, max_chars);
-    let finalFindings = [...fb.findings];
-    let modelUsed = false;
-    let modelCallMeta: ModelCallMeta | null = null;
+    let canonicalFindings = [...fb.findings];
 
-    // Step 2: Optionally enhance with model
-    if (modelAvailable) {
+    // Diagnostic count from parser
+    const parsedCount = fb.findings.length;
+    let modelUsed = false;
+    let modelCallMeta: ModelCallMeta = {
+      candidate_batches: 0, batches_sent: 0,
+      batches_succeeded: 0, batches_failed: 0, batches_omitted_by_budget: 0,
+    };
+
+    // Step 2: Optionally enhance with model (overlay, not replace)
+    // P0-2: enrichment decision — skip model for structure-only requests
+    const enrichmentMode = getEnrichmentMode(focus, outputKind, canonicalFindings);
+
+    if (modelAvailable && enrichmentMode !== "off") {
       const client = new ChatClient(config as AppConfig);
       if (client.isAvailable()) {
         if (outputKind === "tsc_error") {
-          // For tsc: use batch diagnostic approach
-          const result = await runTscBatchModelPath(client, output, command, exit_code, focus, max_chars, fb.findings, log);
+          const result = await runTscBatchModelPath(client, output, command, exit_code, focus, max_chars, canonicalFindings, log);
           if (result) {
-            finalFindings = result.findings;
+            canonicalFindings = result.findings;
             modelUsed = true;
             modelCallMeta = result.meta;
           }
         } else {
-          // For other formats: use chunk-based approach
           const result = await runChunkModelPath(client, output, command, exit_code, focus, max_chars, log);
           if (result && result.findings.length > 0) {
-            finalFindings = result.findings;
+            canonicalFindings = result.findings;
             modelUsed = true;
-            modelCallMeta = { batches_sent: 0, batches_succeeded: 0, batches_failed: 0, candidate_batches: 0, batches_omitted_by_budget: 0 };
           }
         }
       } else {
@@ -90,16 +139,20 @@ export async function handleCompressCommandOutput(
       }
     }
 
-    // Step 3: Re-derive all fields from final findings
-    const derived = deriveFromFindings(finalFindings, command, exit_code, outputKind, output.length, max_chars);
+    // Step 3: Strip internal fields before output
+    const outputFindings = canonicalFindings.map(({ _diagnostic_id, ...rest }) => rest);
 
-    // Step 4: Build output
+    // Step 4: Re-derive all fields from canonical findings
+    const derived = deriveFromFindings(canonicalFindings, command, exit_code, outputKind, output.length, max_chars);
+
+    // Step 5: Build output
     const { meta } = chunkCommandOutput(output, max_chars);
 
     const outputData: CompressCommandOutputOutput = {
       summary: derived.summary,
       first_failure: derived.first_failure,
-      findings: finalFindings,
+      primary_actionable_failure: derived.primary_actionable_failure,
+      findings: outputFindings,
       repeated_errors: derived.repeated_errors,
       suggested_source_checks: derived.suggested_source_checks,
       suggested_next_commands: derived.suggested_next_commands,
@@ -112,7 +165,9 @@ export async function handleCompressCommandOutput(
         input_truncated: meta.input_truncated,
         fallback_used: !modelUsed,
         chunking: meta,
-        ...(modelCallMeta ?? {}),
+        diagnostics_parsed: parsedCount,
+        findings_retained: canonicalFindings.length,
+        ...modelCallMeta,
       } as CompressCommandOutputOutput["_meta"],
     };
 
@@ -128,6 +183,9 @@ interface ModelCallMeta {
   batches_succeeded: number;
   batches_failed: number;
   batches_omitted_by_budget: number;
+  model_findings_received?: number;
+  model_enhancements_applied?: number;
+  unknown_diagnostic_ids?: number;
 }
 
 interface ChunkModelResult {
@@ -141,13 +199,13 @@ async function runTscBatchModelPath(
   exitCode: number | undefined,
   focus: string | undefined,
   maxChars: number,
-  fallbackFindings: CommandOutputFinding[],
+  canonicalFindings: CommandOutputFinding[],
   log: ReturnType<typeof traceLogger>,
 ): Promise<{ findings: CommandOutputFinding[]; meta: ModelCallMeta } | null> {
-  const { chunks, meta } = chunkCommandOutput(output, maxChars);
+  const { chunks } = chunkCommandOutput(output, maxChars);
   const systemPrompt = buildCompressCommandOutputSystemPrompt();
 
-  // Filter to diagnostic batch chunks (they contain JSON arrays)
+  // Filter to diagnostic batch chunks
   const diagChunks = chunks.filter(c => c.label.startsWith("tsc diagnostics batch"));
   const cappedBatches = diagChunks.slice(0, MAX_MODEL_CALLS);
 
@@ -159,50 +217,51 @@ async function runTscBatchModelPath(
     sent: cappedBatches.length,
   });
 
+  // Build Map for exact diagnostic_id lookup
+  const findingById = new Map<string, CommandOutputFinding>();
+  for (const f of canonicalFindings) {
+    if (f._diagnostic_id) findingById.set(f._diagnostic_id, f);
+  }
+
   let succeeded = 0;
   let failed = 0;
-  const collected: CommandOutputFinding[] = [];
+  let modelFindingsReceived = 0;
+  let enhancementsApplied = 0;
+  let unknownIds = 0;
+  const seenOverlayIds = new Set<string>(); // track duplicate model responses
 
   for (const batch of cappedBatches) {
     try {
-      // Parse the JSON array of diagnostics from the chunk text
       const diagnostics = JSON.parse(batch.text);
       const userMsg = buildCompressCommandOutputBatchUserMessage(diagnostics, command, exitCode, focus);
       const raw = await client.chat(systemPrompt, userMsg);
       const jsonStr = extractJsonFromResponse(raw);
       const parsed = JSON.parse(jsonStr);
 
-      // Validate with model response schema
       const validated = ModelCommandOutputResponseSchema.safeParse(parsed);
       if (validated.success && validated.data.findings.length > 0) {
-        // Merge model findings with corresponding fallback findings
         for (const mf of validated.data.findings) {
-          const diagId = mf.diagnostic_id;
-          const fbFinding = diagId
-            ? fallbackFindings.find(f => {
-                // Match by diagnostic id (reconstructed: kind:file:Lline:errorCode:seq)
-                const parts = diagId.split(":");
-                const file = parts[1];
-                const errorCode = parts[3];
-                return f.file === file && f.error_code === errorCode;
-              })
-            : undefined;
+          modelFindingsReceived++;
+          if (!mf.diagnostic_id) continue;
 
-          if (fbFinding) {
-            // Enhance fallback finding with model classification
-            collected.push({
-              ...fbFinding,
-              kind: mf.kind ?? fbFinding.kind,
-              message: mf.message ?? fbFinding.message,
-              confidence: mf.confidence ?? fbFinding.confidence,
-            });
+          const target = findingById.get(mf.diagnostic_id);
+          if (target) {
+            // P0-2: Overlay — only enhance allowed fields
+            if (!seenOverlayIds.has(mf.diagnostic_id)) {
+              seenOverlayIds.add(mf.diagnostic_id);
+              enhancementsApplied++;
+            }
+            // Apply enhancement fields only
+            if (mf.kind) target.kind = mf.kind;
+            if (mf.message) target.message = mf.message;
+            if (mf.confidence) target.confidence = mf.confidence;
+            // actionability is internal — carry through for sorting
+            (target as unknown as Record<string, unknown>)._actionability = mf.actionability;
+            (target as unknown as Record<string, unknown>)._model_enhanced = true;
           } else {
-            // Model finding without a corresponding diagnostic — add as low confidence
-            collected.push({
-              kind: mf.kind ?? "unknown",
-              message: mf.message ?? "Model-identified finding",
-              evidence: "",
-              confidence: "low",
+            unknownIds++;
+            log.warn("compress-command-output: unknown diagnostic_id from model", {
+              diagnostic_id: mf.diagnostic_id,
             });
           }
         }
@@ -217,29 +276,27 @@ async function runTscBatchModelPath(
     }
   }
 
-  // If all batches failed or no findings collected, return null (use fallback)
-  if (collected.length === 0) {
-    if (succeeded === 0) {
-      log.warn("compress-command-output: all batches failed, using fallback entirely");
-    }
-    return null;
-  }
-
-  // Deduplicate merged findings
-  const deduped = deduplicateCommandFindings(collected);
+  // Canonical findings ALWAYS preserved — model only overlays enhancements
+  // P0-2: If all batches fail, canonical findings are still complete
+  // P0-3: No semantic dedup on canonical findings
 
   log.info("compress-command-output: batch model path done", {
-    succeeded, failed, collected: collected.length, deduped: deduped.length,
+    succeeded, failed,
+    modelFindingsReceived, enhancementsApplied, unknownIds,
+    canonical: canonicalFindings.length,
   });
 
   return {
-    findings: deduped,
+    findings: canonicalFindings,
     meta: {
       candidate_batches: diagChunks.length,
       batches_sent: cappedBatches.length,
       batches_succeeded: succeeded,
       batches_failed: failed,
       batches_omitted_by_budget: Math.max(0, diagChunks.length - MAX_MODEL_CALLS),
+      model_findings_received: modelFindingsReceived,
+      model_enhancements_applied: enhancementsApplied,
+      unknown_diagnostic_ids: unknownIds,
     },
   };
 }
@@ -310,10 +367,24 @@ async function runChunkModelPath(
 interface DerivedFields {
   summary: string;
   first_failure: CommandOutputFinding | undefined;
+  primary_actionable_failure: CommandOutputFinding | undefined;
   repeated_errors: CompressCommandOutputOutput["repeated_errors"];
   suggested_source_checks: string[];
   suggested_next_commands: string[];
   discarded_or_low_confidence: string[];
+}
+
+/**
+ * Quick source kind classification from file path (no dependency on diagnostics module).
+ */
+function classifySourceKindFromFile(filePath: string | undefined): string {
+  if (!filePath) return "unknown";
+  const normalized = filePath.replace(/\\/g, "/");
+  if (/\/node_modules\//.test(normalized)) return "dependency";
+  if (/(?:\.next\/|dist\/|build\/|__generated__\/)/.test(normalized)) return "generated";
+  if (/\.(test|spec)\.\w+$/i.test(normalized)) return "test";
+  if (/(?:^|\/)(src|lib|app|pages|components|utils|hooks|services)\//.test(normalized)) return "project";
+  return "unknown";
 }
 
 function deriveFromFindings(
@@ -324,35 +395,67 @@ function deriveFromFindings(
   outputLength: number,
   maxChars: number,
 ): DerivedFields {
-  // first_failure: first error-type finding
-  const firstFailure = findings.find(f =>
+  // first_failure: first error by first_seen_index (original order)
+  const sortedByIndex = [...findings].sort(
+    (a, b) => (a.first_seen_index ?? 0) - (b.first_seen_index ?? 0),
+  );
+  const firstFailure = sortedByIndex.find(f =>
     f.kind !== "warning" && f.kind !== "info",
   );
 
-  // repeated_errors: group by normalized message
-  const counts = new Map<string, { count: number; examples: string[] }>();
+  // primary_actionable_failure: most actionable project error
+  const sourceKindPriority: Record<string, number> = {
+    project: 0, test: 1, generated: 2, dependency: 3, unknown: 4,
+  };
+  const primaryActionable = [...findings]
+    .filter(f => f.kind !== "warning" && f.kind !== "info")
+    .sort((a, b) => {
+      const skA = sourceKindPriority[classifySourceKindFromFile(a.file)] ?? 99;
+      const skB = sourceKindPriority[classifySourceKindFromFile(b.file)] ?? 99;
+      if (skA !== skB) return skA - skB;
+      return (a.first_seen_index ?? 0) - (b.first_seen_index ?? 0);
+    })[0];
+
+  // repeated_errors: group by error_code + normalized message (not file/line)
+  // P0-3: semantic grouping only for repeated_errors, NOT deleting canonical findings
+  const patternMap = new Map<string, { count: number; examples: string[] }>();
   for (const f of findings) {
-    const key = f.message.toLowerCase().trim();
-    const entry = counts.get(key);
+    const normKey = `${f.error_code ?? ""}:${f.message.toLowerCase().trim()}`;
+    const entry = patternMap.get(normKey);
     if (entry) {
       entry.count++;
-      if (entry.examples.length < 3) entry.examples.push(f.evidence);
+      if (entry.examples.length < 3) {
+        entry.examples.push(`${f.file ?? "?"}:${f.line ?? "?"} — ${f.evidence.slice(0, 120)}`);
+      }
     } else {
-      counts.set(key, { count: 1, examples: [f.evidence] });
+      patternMap.set(normKey, {
+        count: 1,
+        examples: [`${f.file ?? "?"}:${f.line ?? "?"} — ${f.evidence.slice(0, 120)}`],
+      });
     }
   }
   const repeated_errors: DerivedFields["repeated_errors"] = [];
-  for (const [message, info] of counts) {
+  for (const [, info] of patternMap) {
     if (info.count > 1) {
-      repeated_errors.push({ message, count: info.count, examples: info.examples });
+      const firstExample = info.examples[0] ?? "";
+      repeated_errors.push({
+        message: firstExample.slice(0, 200),
+        count: info.count,
+        examples: info.examples,
+      });
     }
   }
   repeated_errors.sort((a, b) => b.count - a.count);
 
-  // suggested_source_checks: top 5 by usability (project before generated)
+  // suggested_source_checks: top 5 by source kind (project before generated)
   const seenFiles = new Set<string>();
   const suggested_source_checks: string[] = [];
-  for (const f of findings) {
+  const sortedForChecks = [...findings].sort((a, b) => {
+    const skA = sourceKindPriority[classifySourceKindFromFile(a.file)] ?? 99;
+    const skB = sourceKindPriority[classifySourceKindFromFile(b.file)] ?? 99;
+    return skA - skB;
+  });
+  for (const f of sortedForChecks) {
     if (suggested_source_checks.length >= 5) break;
     if (f.file && !seenFiles.has(f.file)) {
       seenFiles.add(f.file);
@@ -367,25 +470,27 @@ function deriveFromFindings(
   if (outputKind === "eslint_output") suggested_next_commands.push("npx eslint <files>");
 
   // discarded_or_low_confidence
-  const discarded: string[] = ["Full output not semantically analyzed — pattern matching only"];
+  const discarded: string[] = [];
   if (outputLength > maxChars) {
     discarded.push(`Output truncated from ${outputLength} to ${maxChars} chars`);
   }
 
-  // summary
+  // summary: distinguish diagnostics parsed, findings retained, repeated patterns
   const errorCount = findings.filter(f => f.kind !== "warning" && f.kind !== "info").length;
-  const warnCount = findings.filter(f => f.kind === "warning").length;
   const commandLabel = command ? `Command \`${command}\` ` : "";
   const exitLabel = exitCode !== undefined ? ` (exit code: ${exitCode})` : "";
   const summary =
     `${commandLabel}${exitLabel}: Detected "${outputKind}". ` +
-    `${errorCount} error(s), ${warnCount} warning(s). ` +
-    (firstFailure ? `First failure: ${firstFailure.message}. ` : "") +
-    (repeated_errors.length > 0 ? `${repeated_errors.length} repeated error pattern(s).` : "");
+    `Parsed ${findings.length} diagnostics, retained ${findings.length} findings. ` +
+    `${errorCount} error(s). ` +
+    (repeated_errors.length > 0 ? `${repeated_errors.length} repeated error pattern(s). ` : "") +
+    (firstFailure ? `First failure: ${firstFailure.file}:${firstFailure.line} ${firstFailure.error_code ?? ""}. ` : "") +
+    (primaryActionable ? `Primary actionable: ${primaryActionable.file}:${primaryActionable.line}.` : "");
 
   return {
     summary,
     first_failure: firstFailure,
+    primary_actionable_failure: primaryActionable,
     repeated_errors,
     suggested_source_checks,
     suggested_next_commands,

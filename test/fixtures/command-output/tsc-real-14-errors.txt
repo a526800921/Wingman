@@ -1,15 +1,15 @@
-src/app.ts(10,5): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
-src/app.ts(15,7): error TS2322: Type 'string' is not assignable to type 'number'.
-src/app.ts(20,3): error TS18046: 'x' is of type 'unknown'.
-src/app.ts(25,12): error TS2339: Property 'foo' does not exist on type 'Bar'.
-src/utils.ts(8,1): error TS2304: Cannot find name 'process'.
-src/utils.ts(12,5): error TS2532: Object is possibly 'undefined'.
-src/utils.ts(18,9): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
-src/utils.ts(22,7): error TS2554: Expected 2 arguments, but got 1.
-src/utils.ts(30,3): error TS2307: Cannot find module 'unknown-lib'.
-src/helpers.ts(5,10): error TS18047: 'obj' is possibly 'null'.
-src/helpers.ts(11,8): error TS2367: This comparison appears to be unintentional.
-src/helpers.ts(16,4): error TS6133: 'unused' is declared but its value is never read.
-src/helpers.ts(20,6): error TS2322: Type 'number' is not assignable to type 'string'.
-src/helpers.ts(25,2): error TS2588: Cannot assign to 'readonly' because it is a constant.
+.next/dev/types/validator.ts(47,5): error TS2344: Type '"root"' does not satisfy the constraint 'PageProps'.
+.next/dev/types/validator.ts(83,10): error TS2344: Type '"app"' does not satisfy the constraint 'PageProps'.
+.next/dev/types/validator.ts(92,8): error TS2344: Type '"api"' does not satisfy the constraint 'PageProps'.
+.next/dev/types/validator.ts(101,5): error TS2344: Type '"pages"' does not satisfy the constraint 'PageProps'.
+.next/dev/types/validator.ts(110,6): error TS2344: Type '"layout"' does not satisfy the constraint 'PageProps'.
+.next/dev/types/validator.ts(119,8): error TS2344: Type '"template"' does not satisfy the constraint 'PageProps'.
+.next/dev/types/validator.ts(191,12): error TS2344: Type '"not-found"' does not satisfy the constraint 'PageProps'.
+lib/netease.ts(76,3): error TS2322: Type 'string' is not assignable to type 'number'.
+lib/netease.ts(77,1): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type 'Config'.
+lib/netease.ts(78,7): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type 'Config'.
+lib/netease.ts(98,12): error TS2339: Property 'data' does not exist on type 'Response'.
+lib/netease.ts(98,28): error TS2339: Property 'code' does not exist on type 'Response'.
+pages/api/tts/__tests__/[hash].test.ts(13,1): error TS2304: Cannot find name 'beforeAll'.
+pages/api/tts/__tests__/[hash].test.ts(21,1): error TS2304: Cannot find name 'afterAll'.
 Found 14 errors in 3 files.

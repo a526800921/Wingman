@@ -39,7 +39,7 @@ const FORTY_ERRORS = Array.from({ length: 45 }, (_, i) =>
 
 // ── Budget constants (must match handler) ─────────────────
 
-const MAX_PER_BATCH = 8;
+const MAX_PER_BATCH = 20;
 const MAX_BATCH_CHARS = 6000;
 const MAX_MODEL_CALLS = 5;
 
@@ -71,17 +71,16 @@ describe("budget scenario A: structure-only", () => {
 // ── Scenario B: Batch grouping ────────────────────────────
 
 describe("budget scenario B: batch grouping", () => {
-  it("14 tsc errors produce 2-4 diagnostic batches in chunking", () => {
+  it("14 tsc errors produce 1-2 diagnostic batches in chunking", () => {
     const { chunks } = chunkCommandOutput(FOURTEEN_ERRORS);
 
     // Only count diagnostic batch chunks (labeled "tsc diagnostics batch")
     const diagBatches = chunks.filter(c => c.label.startsWith("tsc diagnostics batch"));
 
-    // 14 diagnostics with MAX_PER_BATCH=8 → expect 2 batches
-    // (14 / 8 = 1.75, rounded up to 2)
+    // P0-3: 14 compact diagnostics fit in 1 batch (MAX_PER_BATCH=20, payload < 6000 chars)
     assert.ok(
-      diagBatches.length >= 2 && diagBatches.length <= 4,
-      `Expected 2-4 diag batches for 14 errors, got ${diagBatches.length}`,
+      diagBatches.length >= 1 && diagBatches.length <= 2,
+      `Expected 1-2 diag batches for 14 errors, got ${diagBatches.length}`,
     );
 
     // Each batch should contain valid JSON
@@ -152,10 +151,10 @@ describe("budget scenario C: over budget", () => {
     const diagBatches = chunks.filter(c => c.label.startsWith("tsc diagnostics batch"));
 
     // The key invariant: number of batches << number of diagnostics
-    // (Previously: 14 errors → 23 chunks; now: 14 errors → 2 batches)
+    // (Previously: 14 errors → 23 chunks; now: 14 errors → 1 batch)
     assert.ok(
-      diagBatches.length <= 4,
-      `14 errors should produce ≤ 4 batches (was 23 before fix), got ${diagBatches.length}`,
+      diagBatches.length <= 2,
+      `14 errors should produce ≤ 2 batches (was 23 before fix), got ${diagBatches.length}`,
     );
   });
 });

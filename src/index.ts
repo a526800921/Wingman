@@ -380,6 +380,15 @@ const COMPRESS_COMMAND_OUTPUT_OUTPUT_SCHEMA = {
     suggested_next_commands: { type: "array", items: { type: "string" } },
     discarded_or_low_confidence: { type: "array", items: { type: "string" } },
     is_authoritative: { type: "boolean", const: false },
+    primary_actionable_failure: {
+      type: "object",
+      properties: {
+        kind: { type: "string" }, message: { type: "string" },
+        file: { type: "string" }, line: { type: "integer" },
+        error_code: { type: "string" }, evidence: { type: "string" },
+        confidence: { type: "string" },
+      },
+    },
     _meta: {
       type: "object",
       properties: {
@@ -389,11 +398,16 @@ const COMPRESS_COMMAND_OUTPUT_OUTPUT_SCHEMA = {
         input_truncated: { type: "boolean" },
         fallback_used: { type: "boolean" },
         chunking: { type: "object" },
+        diagnostics_parsed: { type: "integer" },
+        findings_retained: { type: "integer" },
         candidate_batches: { type: "integer" },
         batches_sent: { type: "integer" },
         batches_succeeded: { type: "integer" },
         batches_failed: { type: "integer" },
         batches_omitted_by_budget: { type: "integer" },
+        model_findings_received: { type: "integer" },
+        model_enhancements_applied: { type: "integer" },
+        unknown_diagnostic_ids: { type: "integer" },
       },
     },
   },

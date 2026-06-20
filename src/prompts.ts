@@ -436,13 +436,12 @@ export function buildCompressCommandOutputUserMessage(
 export function buildCompressCommandOutputBatchUserMessage(
   diagnostics: Array<{
     id: string;
-    kind: string;
     file?: string;
     line?: number;
     column?: number;
     error_code?: string;
     headline: string;
-    evidence: string;
+    details?: string[];
     source_kind?: string;
   }>,
   command?: string,
