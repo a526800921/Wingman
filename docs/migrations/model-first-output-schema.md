@@ -4,6 +4,21 @@
 
 本说明适用于 Wingman 模型型工具逐步新增的状态、heuristic signal 和 actionable failure 字段。
 
+## 2026-06-20: 模型响应契约恢复新增字段
+
+`aux_compress_command_output` 的 `_meta` 新增以下 optional 字段：
+
+| 字段 | 类型 | 语义 |
+|------|------|------|
+| `model_response_status` | `string` | `valid` / `partial_valid` / `empty` / `parse_failure` / `schema_failure` / `transport_failure` |
+| `model_call_attempts` | `number` | 模型调用总次数（正常路径=1，含修复=2） |
+| `model_findings_rejected` | `number` | 被逐 finding 校验拒绝的 finding 数量 |
+
+消费方注意：
+- `model_response_status: "empty"` ≠ `"schema_failure"` — empty 是模型合法返回空 findings
+- `model_findings_rejected > 0` 时即使 `findings_retained > 0`，analysis 不应视为完整
+- 旧调用方忽略这些字段不受影响（均为 optional）
+
 ## 消费方读取原则
 
 ### 1. 优先读取 `analysis_status`

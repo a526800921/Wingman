@@ -128,6 +128,7 @@ function stripInternalFieldsFromArray(findings: InternalFinding[]): CommandOutpu
 export async function handleCompressCommandOutput(
   input: unknown,
   config: ConfigLike,
+  _testClient?: ChatClient,
 ): Promise<CallToolResult> {
   const t0 = Date.now();
   const tid = createTraceId();
@@ -156,7 +157,7 @@ export async function handleCompressCommandOutput(
       return fallbackOnlyResult(provider, cappedOutput, inputTruncated, command, exit_code, detectorHint);
     }
 
-    const client = new ChatClient(config as AppConfig);
+    const client = _testClient ?? new ChatClient(config as AppConfig);
     if (!client.isAvailable()) {
       log.info("compress-command-output: ChatClient unavailable, using fallback");
       return fallbackOnlyResult(provider, cappedOutput, inputTruncated, command, exit_code, detectorHint);
@@ -302,26 +303,13 @@ async function modelFirstPath(
   }
 
   // ── Evidence verification ──────────────────────────────
-  let verifiedCount = 0;
-  let partialCount = 0;
-  let unverifiedCount = 0;
   const findings: CommandOutputFinding[] = [];
 
   for (const mf of modelFindings) {
     const verdict = verifyEvidence(mf.evidence, output);
     const finding = modelFindingToOutput(mf, verdict);
     finding.evidence = sanitizeEvidence(finding.evidence);
-
-    if (verdict === "verified") {
-      verifiedCount++;
-      findings.push(finding);
-    } else if (verdict === "partial") {
-      partialCount++;
-      findings.push({ ...finding, confidence: "medium" });
-    } else {
-      unverifiedCount++;
-      findings.push({ ...finding, confidence: "low" });
-    }
+    findings.push(finding);
   }
 
   // Dedup by finding_id only
@@ -333,23 +321,53 @@ async function modelFirstPath(
     return true;
   });
 
+  // Count from final canonical set (post-dedup)
+  let verifiedCount = 0;
+  let partialCount = 0;
+  let unverifiedCount = 0;
+  for (const f of dedupedFindings) {
+    const v = (f as InternalFinding)._model_verified;
+    if (v === "verified") verifiedCount++;
+    else if (v === "partial") partialCount++;
+    else unverifiedCount++;
+  }
+
   // ── Non-zero exit + no verified findings → incomplete or fallback ──
   let analysisStatus: CompressCommandOutputOutput["analysis_status"] = "complete";
   const discarded: string[] = [];
   let fallbackUsed = false;
 
+  // Determine if we need to use deterministic coverage guard
+  const allFindingsRejected = modelFindingsReceived > 0 && modelFindings.length === 0;
+  const modelFailed = batchesFailed > 0 && batchesSucceeded === 0;
+  const needsCoverageGuard =
+    modelFailed ||
+    modelResponseStatus === "empty" ||
+    allFindingsRejected;
+
   if (exitCode !== undefined && exitCode !== 0 && verifiedCount === 0) {
-    if (batchesFailed > 0 && batchesSucceeded === 0) {
-      // Total model failure — try deterministic fallback for known formats
-      analysisStatus = "incomplete";
-      discarded.push("Model analysis failed — results may be incomplete");
+    if (needsCoverageGuard) {
+      // Model failed / empty / all-rejected — try deterministic fallback for known formats
+      if (modelFailed) {
+        analysisStatus = "incomplete";
+        discarded.push("Model analysis failed — results may be incomplete");
+      } else if (modelResponseStatus === "empty") {
+        analysisStatus = "incomplete";
+        discarded.push("Model returned no findings for non-zero exit command");
+      } else {
+        analysisStatus = "partial";
+        discarded.push("All model findings were rejected by schema validation");
+      }
 
       if (detectorHint === "tsc_error") {
-        log.info("compress-command-output: model failed, using tsc fallback for non-zero exit");
+        log.info("compress-command-output: using tsc coverage guard for non-zero exit", {
+          reason: modelFailed ? "model_failure" : modelResponseStatus === "empty" ? "empty_response" : "all_rejected",
+        });
         const fb = compressCommandOutputFallback(command, output, exitCode, output.length);
         const fbDerived = deriveFromFindings(fb.findings, command, exitCode, detectorHint, output.length, output.length);
 
         fb.findings.forEach(f => { f.evidence = sanitizeEvidence(f.evidence); });
+        fallbackUsed = true;
 
         const fbOutputData: CompressCommandOutputOutput = {
           summary: fbDerived.summary,
@@ -398,13 +416,20 @@ async function modelFirstPath(
       // Unknown format, no fallback — return incomplete
       discarded.push("Command exited with non-zero code but model analysis failed and no fallback available");
     } else if (modelFindings.length === 0) {
-      // Model succeeded but found nothing on non-zero exit — incomplete
+      // Truly nothing found (not empty/all-rejected coverage case)
       analysisStatus = "incomplete";
       discarded.push("Command exited with non-zero code but analysis found no issues");
     } else {
       // Model found things but none verified — partial
       analysisStatus = "partial";
       discarded.push("Command exited with non-zero code, findings present but evidence could not be fully verified");
+    }
+  }
+
+  // ── Derive analysis_status from response quality ─────────
+  if (analysisStatus === "complete") {
+    if (modelResponseStatus === "partial_valid" || modelFindingsRejected > 0) {
+      analysisStatus = "partial";
     }
   }
 

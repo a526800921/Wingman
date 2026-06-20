@@ -54,6 +54,11 @@ const ENVELOPE_KNOWN_FIELDS = new Set([
   "detected_kind", "summary", "findings", "reported_totals", "uncertainties",
 ]);
 
+/** Fields accepted in reported_totals — must match ReportedTotalsSchema */
+const REPORTED_TOTALS_KNOWN_FIELDS = new Set([
+  "failures", "errors", "warnings", "failed_files",
+]);
+
 // ── Relaxed finding schema (passthrough: allow extra fields) ─
 
 const RelaxedFindingSchema = z.object({
@@ -168,13 +173,19 @@ export function decodeModelFirstResponse(raw: string): DecodedModelFirstResponse
     ? (cleanEnvelope.uncertainties as string[]).filter(u => typeof u === "string")
     : undefined;
 
-  // Parse reported_totals if present
+  // Parse reported_totals if present — only accept known fields with integer values
   let reported_totals: Record<string, number> | undefined;
   if (typeof cleanEnvelope.reported_totals === "object" && cleanEnvelope.reported_totals !== null) {
     const rt = cleanEnvelope.reported_totals as Record<string, unknown>;
     reported_totals = {};
     for (const [k, v] of Object.entries(rt)) {
-      if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
+      if (
+        REPORTED_TOTALS_KNOWN_FIELDS.has(k) &&
+        typeof v === "number" &&
+        Number.isInteger(v) &&
+        Number.isFinite(v) &&
+        v >= 0
+      ) {
         reported_totals[k] = v;
       }
     }

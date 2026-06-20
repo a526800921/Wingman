@@ -3,7 +3,7 @@
 ## 元数据
 
 - 文档类型：施工计划
-- 状态：Ready
+- 状态：已完成（实施评审通过：`docs/command-output-response-contract-implementation-review.md`）
 - 日期：2026-06-20
 - 依赖计划：`docs/model-first-command-output-plan.md`、`docs/phase2-validation-p0-plan.md`
 - 相关 ADR：`docs/adr/0001-model-first.md`
@@ -278,18 +278,18 @@ gitnexus_detect_changes(scope: all)
 
 ## 11. 完成定义
 
-- [ ] Round 4 fixture 在旧实现上稳定红灯，在新实现上转绿。
-- [ ] 非空模型响应不会因单个 finding 非法整体变成 0 findings。
-- [ ] nullable optional 和未知字段有通用测试，不依赖 tsc 专用逻辑。
-- [ ] parse、schema、empty 和 transport failure 可区分。
-- [ ] 14 个 tsc diagnostics 最终保留为 14 个独立 findings。
-- [ ] Round 4 小输入正常路径只有 1 次模型调用。
-- [ ] 修复调用最多 1 次，并计入调用预算和元数据。
-- [ ] 非零退出且无法形成可信 findings 时返回 incomplete 或明确 fallback，不暗示 0 errors。
-- [ ] tsc parser 仍只是 coverage guard/fallback。
-- [ ] 新增 `_meta` 字段已同步 `src/schema.ts`、`src/index.ts` 和 migration note。
-- [ ] 所有目标 symbol 已在修改前完成 GitNexus impact。
-- [ ] build、test、smoke 和真实模型回放通过。
-- [ ] `gitnexus_detect_changes` 只报告 command-output 响应处理、Schema、fallback 和对应测试流程。
-- [ ] `docs/PLAN_MAP.md` 状态与验证证据已更新。
+- [x] Round 4 fixture 在旧实现上稳定红灯，在新实现上转绿。(`test/command-output-response-contract.test.ts`)
+- [x] 非空模型响应不会因单个 finding 非法整体变成 0 findings。(decoder per-finding validation)
+- [x] nullable optional 和未知字段有通用测试，不依赖 tsc 专用逻辑。(`normalizeOptionalNull` + `stripUnknownFields`)
+- [x] parse、schema、empty 和 transport failure 可区分。(`ModelResponseStatus` 6 states)
+- [x] 14 个 tsc diagnostics 最终保留为 14 个独立 findings。(Round 4 replay ×3 confirmed)
+- [x] Round 4 小输入正常路径只有 1 次模型调用。(`model_call_attempts = 1`)
+- [x] 修复调用最多 1 次，并计入调用预算和元数据。(`model_call_attempts ≤ 2`)
+- [x] 非零退出且无法形成可信 findings 时返回 incomplete 或明确 fallback，不暗示 0 errors。(coverage guard for empty/all-rejected)
+- [x] tsc parser 仍只是 coverage guard/fallback。(only when model fails + non-zero + tsc_error)
+- [x] 新增 `_meta` 字段已同步 `src/schema.ts`、`src/index.ts` 和 migration note。
+- [x] 所有目标 symbol 已在修改前完成 GitNexus impact。(all LOW risk)
+- [x] build、test、smoke 和真实模型回放通过。(216 test + 10 smoke + build + replay ×3)
+- [x] `gitnexus_detect_changes` 只报告 command-output 响应处理、Schema、fallback 和对应测试流程。
+- [x] `docs/PLAN_MAP.md` 状态与验证证据已更新。
 
