@@ -173,6 +173,7 @@ export function buildCompressTextUserMessage(
   focus?: string,
 ): string {
   text = sanitizeMarkers(text);
+  label = sanitizeMarkers(label);
   if (focus) focus = sanitizeMarkers(focus);
   const parts: string[] = [
     `${CONTENT_MARKER_START}`,
