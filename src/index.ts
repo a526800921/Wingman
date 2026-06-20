@@ -17,6 +17,7 @@ import { logger, getLogFilePath } from "./logger.js";
 import { handleSummarizeFile } from "./tools/summarize-file.js";
 import { handleCompressText } from "./tools/compress-text.js";
 import { handleReviewDiff } from "./tools/review-diff.js";
+import { handleReviewDiffByFile } from "./tools/review-diff-by-file.js";
 
 const SERVER_NAME = "wingman";
 const SERVER_VERSION = "0.1.0";
@@ -234,6 +235,122 @@ const REVIEW_DIFF_TOOL_DEFINITION = {
   outputSchema: REVIEW_DIFF_OUTPUT_SCHEMA,
 };
 
+const REVIEW_DIFF_BY_FILE_OUTPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    overall_summary: { type: "string" },
+    files: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          file: { type: "string" },
+          change_summary: { type: "string" },
+          findings: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                risk: { type: "string" },
+                severity: { type: "string", enum: ["low", "medium", "high", "critical"] },
+                file: { type: "string" },
+                hunk: { type: "string" },
+                location: { type: "string" },
+                explanation: { type: "string" },
+                evidence: { type: "string" },
+                introduced_by_diff: { type: "boolean" },
+                confidence: { type: "string", enum: ["low", "medium", "high"] },
+              },
+            },
+          },
+          suggested_source_checks: { type: "array", items: { type: "string" } },
+          suggested_tests: { type: "array", items: { type: "string" } },
+          uncertainties: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                topic: { type: "string" },
+                reason: { type: "string" },
+                suggested_verification: { type: "string" },
+              },
+            },
+          },
+        },
+      },
+    },
+    top_risks: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          risk: { type: "string" },
+          severity: { type: "string", enum: ["low", "medium", "high", "critical"] },
+          file: { type: "string" },
+          hunk: { type: "string" },
+          location: { type: "string" },
+          explanation: { type: "string" },
+          evidence: { type: "string" },
+          introduced_by_diff: { type: "boolean" },
+          confidence: { type: "string", enum: ["low", "medium", "high"] },
+        },
+      },
+    },
+    omitted_files: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { file: { type: "string" }, reason: { type: "string" } },
+      },
+    },
+    is_authoritative: { type: "boolean", const: false },
+    _meta: {
+      type: "object",
+      properties: {
+        provider: { type: "string" },
+        model: { type: "string" },
+        tokens_used: { type: "integer" },
+        input_truncated: { type: "boolean" },
+        fallback_used: { type: "boolean" },
+        chunking: {
+          type: "object",
+          properties: {
+            total_chunks: { type: "integer" },
+            analyzed_chunks: { type: "integer" },
+            omitted_chunks: { type: "integer" },
+            omitted: { type: "array", items: { type: "object" } },
+            input_truncated: { type: "boolean" },
+            chunking_strategy: { type: "string" },
+          },
+        },
+      },
+    },
+  },
+  required: ["overall_summary", "files", "top_risks", "is_authoritative", "_meta"],
+};
+
+const REVIEW_DIFF_BY_FILE_TOOL_DEFINITION = {
+  name: "aux_review_diff_by_file",
+  description:
+    "按文件或 hunk 拆分大 diff 独立分析再汇总。适合多文件大 diff，替代 aux_review_diff 对大数据截断的缺陷。结果是辅助性、非权威的——Claude Code 仍负责最终 review。",
+  annotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      diff: { type: "string", description: "unified diff 文本。" },
+      focus: { type: "string", description: "可选，review 关注点。例如 'security'、'performance'、'breaking-changes'。" },
+      max_chars_per_file: { type: "integer", description: "可选，每文件字符上限（默认 40000，最大 200000）。" },
+      max_files: { type: "integer", description: "可选，最大分析文件数（默认 30，最大 100）。" },
+    },
+    required: ["diff"],
+  },
+  outputSchema: REVIEW_DIFF_BY_FILE_OUTPUT_SCHEMA,
+};
+
 // --- Server setup ---
 
 const server = new Server(
@@ -247,6 +364,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     SUMMARIZE_FILE_TOOL_DEFINITION,
     COMPRESS_TEXT_TOOL_DEFINITION,
     REVIEW_DIFF_TOOL_DEFINITION,
+    REVIEW_DIFF_BY_FILE_TOOL_DEFINITION,
   ],
 }));
 
@@ -268,6 +386,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       break;
     case "aux_review_diff":
       result = await handleReviewDiff(args ?? {}, config);
+      break;
+    case "aux_review_diff_by_file":
+      result = await handleReviewDiffByFile(args ?? {}, config);
       break;
     default:
       result = {

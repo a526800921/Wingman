@@ -185,21 +185,101 @@ export const ReviewDiffOutput = authoritativeMarker.merge(
 export type ReviewDiffOutput = z.infer<typeof ReviewDiffOutput>;
 
 // ---------------------------------------------------------------------------
+// aux_review_diff_by_file 专用类型
+// ---------------------------------------------------------------------------
+
+export const DiffFindingSchema = z.strictObject({
+  risk: z.string(),
+  severity: SeveritySchema,
+  file: z.string(),
+  hunk: z.string().optional(),
+  location: z.string().optional(),
+  explanation: z.string().optional(),
+  evidence: z.string(),
+  introduced_by_diff: z.boolean().optional(),
+  confidence: ConfidenceSchema,
+});
+export type DiffFinding = z.infer<typeof DiffFindingSchema>;
+
+export const FileReviewSchema = z.strictObject({
+  file: z.string(),
+  change_summary: z.string(),
+  findings: z.array(DiffFindingSchema),
+  suggested_source_checks: z.array(z.string()),
+  suggested_tests: z.array(z.string()),
+  uncertainties: z.array(UncertaintySchema),
+});
+export type FileReviewZod = z.infer<typeof FileReviewSchema>;
+
+export const OmittedFileSchema = z.strictObject({
+  file: z.string(),
+  reason: z.string(),
+});
+export type OmittedFileZod = z.infer<typeof OmittedFileSchema>;
+
+export const OmittedChunkSchema = z.strictObject({
+  id: z.string(),
+  label: z.string(),
+  source: z.string().optional(),
+  reason: z.string(),
+  start_line: z.number().int().nonnegative().optional(),
+  end_line: z.number().int().nonnegative().optional(),
+});
+
+export const ChunkMetaSchema = z.strictObject({
+  total_chunks: z.number().int().nonnegative(),
+  analyzed_chunks: z.number().int().nonnegative(),
+  omitted_chunks: z.number().int().nonnegative(),
+  omitted: z.array(OmittedChunkSchema),
+  input_truncated: z.boolean(),
+  chunking_strategy: z.string(),
+});
+export type ChunkMetaZod = z.infer<typeof ChunkMetaSchema>;
+
+export const ReviewDiffByFileInput = z.strictObject({
+  diff: z.string().min(1),
+  focus: z.string().optional(),
+  max_chars_per_file: z.number().int().min(1).max(200_000).default(40_000).optional(),
+  max_files: z.number().int().min(1).max(100).default(30).optional(),
+});
+export type ReviewDiffByFileInput = z.infer<typeof ReviewDiffByFileInput>;
+
+export const ReviewDiffByFileOutput = authoritativeMarker.merge(
+  z.strictObject({
+    overall_summary: z.string(),
+    files: z.array(FileReviewSchema),
+    top_risks: z.array(DiffFindingSchema),
+    omitted_files: z.array(OmittedFileSchema),
+    _meta: z.strictObject({
+      provider: z.string().optional(),
+      model: z.string(),
+      tokens_used: z.number().int().nonnegative().optional(),
+      input_truncated: z.boolean(),
+      fallback_used: z.boolean(),
+      chunking: ChunkMetaSchema,
+    }),
+  }),
+);
+export type ReviewDiffByFileOutput = z.infer<typeof ReviewDiffByFileOutput>;
+
+// ---------------------------------------------------------------------------
 // 输入 / 输出 schema 注册表（供 validateInput / validateOutput 使用）
 // ---------------------------------------------------------------------------
 
-type ToolName = "aux_summarize_file" | "aux_compress_text" | "aux_review_diff";
+type ToolName = "aux_summarize_file" | "aux_compress_text" | "aux_review_diff" | "aux_review_diff_by_file";
 
 const inputSchemas: Record<ToolName, z.ZodTypeAny> = {
   aux_summarize_file: SummarizeFileInput,
   aux_compress_text: CompressTextInput,
   aux_review_diff: ReviewDiffInput,
+  aux_review_diff_by_file: ReviewDiffByFileInput,
 };
 
 const outputSchemas: Record<ToolName, z.ZodTypeAny> = {
   aux_summarize_file: SummarizeFileOutput,
   aux_compress_text: CompressTextOutput,
   aux_review_diff: ReviewDiffOutput,
+  aux_review_diff_by_file: ReviewDiffByFileOutput,
 };
 
 // ---------------------------------------------------------------------------
