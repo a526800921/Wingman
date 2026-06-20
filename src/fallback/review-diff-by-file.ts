@@ -225,5 +225,12 @@ export function reviewDiffByFileFallback(
     `${allFindings.length} finding(s) total. ` +
     (meta.omitted.length > 0 ? `${meta.omitted.length} file(s) omitted.` : "");
 
+  logger.debug("reviewDiffByFileFallback result", {
+    fileCount: fileReviews.length,
+    findingCount: allFindings.length,
+    topRiskCount: topRisks.length,
+    omittedFileCount: omittedFiles.length,
+  });
+
   return { overall_summary: overallSummary, files: fileReviews, top_risks: topRisks, omitted_files: omittedFiles, is_authoritative: false, _meta: { chunking: meta } };
 }

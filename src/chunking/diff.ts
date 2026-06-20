@@ -4,6 +4,7 @@
  */
 
 import type { InputChunk, OmittedChunk, ChunkMeta } from "./types.js";
+import { logger } from "../logger.js";
 
 export interface DiffChunkOptions {
   max_chars_per_file?: number;  // default 40_000
@@ -136,6 +137,8 @@ export function chunkDiff(
   const maxCharsPerFile = options.max_chars_per_file ?? 40_000;
   const maxFiles = options.max_files ?? 30;
 
+  logger.debug("chunkDiff called", { diffLen: diff.length, maxCharsPerFile, maxFiles });
+
   const fileSections = splitDiffByFile(diff);
   const omitted: OmittedChunk[] = [];
   const chunks: InputChunk[] = [];
@@ -201,6 +204,13 @@ export function chunkDiff(
       }
     }
   }
+
+  logger.debug("chunkDiff result", {
+    sections: fileSections.length,
+    chunks: chunks.length,
+    totalChunks,
+    omitted: omitted.length,
+  });
 
   return {
     chunks,

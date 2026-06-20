@@ -235,5 +235,12 @@ export function compressCommandOutputFallback(
   const discarded: string[] = ["Full output not semantically analyzed — pattern matching only"];
   if (output.length > maxChars) discarded.push(`Output truncated from ${output.length} to ${maxChars} chars`);
 
+  logger.debug("compressCommandOutputFallback result", {
+    kind,
+    findingCount: deduped.length,
+    repeatedErrorCount: repeatedErrors.length,
+    hasFirstFailure: !!firstFailure,
+  });
+
   return { summary, first_failure: firstFailure, findings: deduped, repeated_errors: repeatedErrors, suggested_source_checks: suggestedChecks, suggested_next_commands: suggestedCommands, discarded_or_low_confidence: discarded, is_authoritative: false };
 }

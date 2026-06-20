@@ -4,6 +4,7 @@
  */
 
 import type { InputChunk, ChunkMeta, OmittedChunk } from "./types.js";
+import { logger } from "../logger.js";
 
 export type OutputKind =
   | "test_output"
@@ -42,6 +43,8 @@ export function chunkCommandOutput(
   const omitted: OmittedChunk[] = [];
   const chunks: InputChunk[] = [];
   let chunkId = 0;
+
+  logger.debug("chunkCommandOutput called", { outputLen: output.length, maxChars, kind });
 
   const truncated = output.length > maxChars;
   const workingOutput = truncated ? output.slice(0, maxChars) : output;
@@ -212,6 +215,14 @@ export function chunkCommandOutput(
   }
 
   const totalChunks = chunks.length + omitted.length;
+
+  logger.debug("chunkCommandOutput result", {
+    kind,
+    chunks: chunks.length,
+    totalChunks,
+    omitted: omitted.length,
+    truncated,
+  });
 
   return {
     chunks,
