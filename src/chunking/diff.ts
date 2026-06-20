@@ -14,12 +14,23 @@ export interface DiffChunkOptions {
 interface FileSection {
   oldPath: string;
   newPath: string;
+  /** Canonical path without a/ or b/ prefix. */
+  canonicalPath: string;
   header: string;    // "--- a/old\n+++ b/new"
   body: string;      // hunks
 }
 
+/** Strip a/ and b/ prefixes from unified diff paths. */
+export function canonicalDiffPath(raw: string): string {
+  // /dev/null → empty (file creation/deletion)
+  if (raw === "/dev/null") return "";
+  // Strip a/ or b/ prefix (standard git diff)
+  return raw.replace(/^[ab]\//, "");
+}
+
 /**
  * Split a unified diff string into per-file sections.
+ * P2: Normalizes paths to canonical form; skips empty preamble sections.
  */
 export function splitDiffByFile(diff: string): FileSection[] {
   const sections: FileSection[] = [];
@@ -28,28 +39,32 @@ export function splitDiffByFile(diff: string): FileSection[] {
   let match: RegExpExecArray | null;
 
   while ((match = fileHeaderRe.exec(diff)) !== null) {
-    if (lastIdx < match.index) {
-      sections.push({
-        oldPath: "",
-        newPath: "",
-        header: diff.slice(lastIdx, match.index),
-        body: "",
-      });
-    }
+    // P2: skip preamble sections — only push real file sections
     const bodyStart = match.index + match[0].length;
-    // Lookahead: find the next file header to determine where this file's body ends.
-    // If exec returns null, lastIndex is reset to 0 for global regexes — restore it
-    // to diff.length to prevent the outer while loop from re-matching infinitely.
     fileHeaderRe.lastIndex = bodyStart;
-    const savedLastIndex = fileHeaderRe.lastIndex;
     const nextMatch = fileHeaderRe.exec(diff);
     if (!nextMatch) {
       fileHeaderRe.lastIndex = diff.length;
     }
     const bodyEnd = nextMatch ? nextMatch.index : diff.length;
+
+    const oldRaw = match[1];
+    const newRaw = match[2];
+    const canonicalOld = canonicalDiffPath(oldRaw);
+    const canonicalNew = canonicalDiffPath(newRaw);
+    const canonicalPath = canonicalNew || canonicalOld;
+
+    // P2: skip if no real file path (e.g., preamble without file header)
+    if (!canonicalPath) {
+      lastIdx = bodyEnd;
+      if (nextMatch) fileHeaderRe.lastIndex = nextMatch.index;
+      continue;
+    }
+
     sections.push({
-      oldPath: match[1],
-      newPath: match[2],
+      oldPath: canonicalOld,
+      newPath: canonicalNew,
+      canonicalPath,
       header: match[0],
       body: diff.slice(bodyStart, bodyEnd),
     });
@@ -147,14 +162,14 @@ export function chunkDiff(
 
   const prioritized = fileSections.map((section, i) => ({
     section,
-    priority: getFilePriority(section.newPath || section.oldPath),
+    priority: getFilePriority(section.canonicalPath),
     originalIndex: i,
   }));
   prioritized.sort((a, b) => a.priority - b.priority || a.originalIndex - b.originalIndex);
 
   for (let i = 0; i < prioritized.length; i++) {
     const { section } = prioritized[i];
-    const filePath = section.newPath || section.oldPath;
+    const filePath = section.canonicalPath;
 
     if (i >= maxFiles) {
       omitted.push({

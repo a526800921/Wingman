@@ -20,6 +20,7 @@ import {
   extractJsonFromResponse,
 } from "../prompts.js";
 import { compressTextFallback } from "../fallback/compress-text.js";
+import { splitPrefixSuffix, joinPrefixSuffix } from "../model-runtime/truncation.js";
 import { createTraceId, traceLogger, logDuration } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -72,7 +73,9 @@ export async function handleCompressText(
   const maxChars = data.max_chars ?? 80_000;
   const originalLength = data.text.length;
   const inputTruncated = originalLength > maxChars;
-  const text = inputTruncated ? data.text.slice(0, maxChars) : data.text;
+  // P3: smart truncation — preserve both prefix and suffix
+  const { prefix, suffix, omittedChars } = splitPrefixSuffix(data.text, maxChars);
+  const text = inputTruncated ? joinPrefixSuffix(prefix, suffix, omittedChars) : data.text;
 
   // ---- 3. Determine model availability ----
   // A full AppConfig has `modelApiKey`; the fallback config (Pick<AppConfig,

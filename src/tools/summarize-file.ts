@@ -26,6 +26,7 @@ import {
 import {
   summarizeFileFallback,
 } from "../fallback/summarize-file.js";
+import { splitPrefixSuffix, joinPrefixSuffix } from "../model-runtime/truncation.js";
 import { createTraceId, traceLogger, logDuration } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -142,7 +143,9 @@ export async function handleSummarizeFile(
   // Truncate if the file exceeds the character limit.
   const maxChars = validatedInput.max_chars ?? DEFAULT_MAX_READ_CHARS;
   const inputTruncated = rawText.length > maxChars;
-  const fileContent = inputTruncated ? rawText.slice(0, maxChars) : rawText;
+  // P3: smart truncation — preserve both prefix and suffix so tail content is not lost
+  const { prefix, suffix, omittedChars } = splitPrefixSuffix(rawText, maxChars);
+  const fileContent = inputTruncated ? joinPrefixSuffix(prefix, suffix, omittedChars) : rawText;
 
   if (inputTruncated) {
     log.info("summarize_file: file truncated", {

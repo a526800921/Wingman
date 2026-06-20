@@ -28,6 +28,39 @@ function hasApiKey(config: ConfigLike): config is AppConfig {
   return "modelApiKey" in config && typeof (config as AppConfig).modelApiKey === "string" && (config as AppConfig).modelApiKey.length > 0;
 }
 
+/**
+ * P2: Small diff → single model call. Sends entire diff and expects per-file findings.
+ */
+async function singleCallModelReview(
+  client: ChatClient,
+  diff: string,
+  focus: string | undefined,
+  log: ReturnType<typeof traceLogger>,
+): Promise<DiffFinding[] | null> {
+  try {
+    const systemPrompt = buildReviewDiffByFileSystemPrompt();
+    const userMsg = buildReviewDiffByFileUserMessage(diff, "full-diff", false, focus);
+    const raw = await client.chat(systemPrompt, userMsg);
+    const jsonStr = extractJsonFromResponse(raw);
+    const parsed = JSON.parse(jsonStr);
+
+    const findings: DiffFinding[] = [];
+    if (parsed?.findings && Array.isArray(parsed.findings)) {
+      for (const f of parsed.findings) {
+        if (f.risk && f.risk !== "no_issues") {
+          findings.push(findingsFromModel(f, String(f.file ?? "unknown")));
+        }
+      }
+    }
+    return findings.length > 0 ? findings : null;
+  } catch (err) {
+    log.warn("review-diff-by-file: single-call model review failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
 function findingsFromModel(
   parsed: Record<string, unknown>,
   chunkLabel: string,
@@ -180,15 +213,27 @@ export async function handleReviewDiffByFile(
         return fallbackResult(provider, meta);
       }
 
-      let succeededChunks = 0;
-      let failedChunks = 0;
-      const CONCURRENCY = 2;
-      const MAX_MODEL_CHUNKS = 20;
+      // P2: Small diff → single model call (entire diff, not per-file)
+      const SINGLE_CALL_BUDGET = 15000;
+      if (originalDiff.length <= SINGLE_CALL_BUDGET && chunks.length <= 5) {
+        const result = await singleCallModelReview(client, originalDiff, focus, log);
+        if (result) {
+          allFindings = result;
+          log.info("review-diff-by-file: single-call model path done", { findings: allFindings.length });
+        }
+      }
 
-      const systemPrompt = buildReviewDiffByFileSystemPrompt();
-      const cappedChunks = chunks.slice(0, MAX_MODEL_CHUNKS);
+      // If single-call produced findings, skip per-chunk loop
+      if (allFindings.length === 0) {
+        let succeededChunks = 0;
+        let failedChunks = 0;
+        const CONCURRENCY = 2;
+        const MAX_MODEL_CHUNKS = 20;
 
-      for (let i = 0; i < cappedChunks.length; i += CONCURRENCY) {
+        const systemPrompt = buildReviewDiffByFileSystemPrompt();
+        const cappedChunks = chunks.slice(0, MAX_MODEL_CHUNKS);
+
+        for (let i = 0; i < cappedChunks.length; i += CONCURRENCY) {
         const slice = cappedChunks.slice(i, i + CONCURRENCY);
         const promises = slice.map(async (chunk) => {
           const chunkLabel = chunk.source ?? chunk.label;
@@ -230,6 +275,7 @@ export async function handleReviewDiffByFile(
       }
 
       log.info("review-diff-by-file: model path done", { succeededChunks, failedChunks, findings: allFindings.length });
+      } // end if (allFindings.length === 0)
     }
 
     if (!modelAvailable) {

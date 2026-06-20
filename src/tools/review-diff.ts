@@ -294,11 +294,20 @@ async function modelReview(
     throw new Error("Model response is not valid JSON");
   }
 
+  // P2: collect heuristic signals from fallback for comparison
+  const heuristicSignals = reviewDiffFallback(diff, maxChars).possible_risks.map(r => ({
+    kind: r.risk,
+    location: r.location,
+    evidence: r.evidence ?? "",
+    confidence: (r.confidence === "high" ? "medium" : r.confidence ?? "low") as "low" | "medium",
+  }));
+
   // Attach _meta before schema validation (model prompt does not include _meta)
   const outputWithMeta = {
     ...(parsed as Record<string, unknown>),
     analysis_status: inputTruncated ? "partial" : "complete",
     is_authoritative: false,
+    heuristic_signals: heuristicSignals.length > 0 ? heuristicSignals : undefined,
     _meta: {
       provider,
       model: config.modelName,

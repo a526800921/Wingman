@@ -190,11 +190,20 @@ export const CompressTextOutput = authoritativeMarker.merge(
 );
 export type CompressTextOutput = z.infer<typeof CompressTextOutput>;
 
+export const HeuristicSignalSchema = z.strictObject({
+  kind: z.string(),
+  location: z.string().optional(),
+  evidence: z.string(),
+  confidence: z.enum(["low", "medium"]),
+});
+export type HeuristicSignal = z.infer<typeof HeuristicSignalSchema>;
+
 export const ReviewDiffOutput = authoritativeMarker.merge(
   z.strictObject({
     analysis_status: AnalysisStatusSchema.default("complete"),
     change_summary: z.string(),
     possible_risks: z.array(PossibleRiskSchema),
+    heuristic_signals: z.array(HeuristicSignalSchema).optional(),
     suggested_source_checks: z.array(z.string()),
     suggested_tests: z.array(z.string()),
     uncertainties: z.array(UncertaintySchema),
@@ -271,6 +280,7 @@ export const ReviewDiffByFileOutput = authoritativeMarker.merge(
     files: z.array(FileReviewSchema),
     top_risks: z.array(DiffFindingSchema),
     omitted_files: z.array(OmittedFileSchema),
+    heuristic_signals: z.array(HeuristicSignalSchema).optional(),
     _meta: z.strictObject({
       provider: z.string().optional(),
       model: z.string(),

@@ -164,7 +164,8 @@ src/
 │   ├── execution.ts      # 模型调用、并发、重试、预算
 │   ├── batching.ts       # payload 预算、单次/分批决策
 │   ├── evidence.ts       # evidence 精确子串校验
-│   └── status.ts         # 分析状态计算（complete/partial/incomplete）
+│   ├── status.ts         # 分析状态计算（complete/partial/incomplete）
+│   └── truncation.ts     # 智能截断（保留前部和尾部，避免信息丢失）
 ├── chunking/
 │   ├── types.ts          # 分块通用类型（InputChunk, OmittedChunk, ChunkMeta）
 │   ├── diff.ts           # Diff 分块（按文件→hunk，优先级排序，省略明细）
