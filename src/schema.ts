@@ -257,6 +257,9 @@ export const ReviewDiffByFileOutput = authoritativeMarker.merge(
       input_truncated: z.boolean(),
       fallback_used: z.boolean(),
       chunking: ChunkMetaSchema,
+      // Phase 2: number of files included in aggregated output
+      files_analyzed: z.number().int().nonnegative().optional(),
+      files_omitted: z.number().int().nonnegative().optional(),
     }),
   }),
 );
@@ -311,10 +314,51 @@ export const CompressCommandOutputOutput = authoritativeMarker.merge(
       input_truncated: z.boolean(),
       fallback_used: z.boolean(),
       chunking: ChunkMetaSchema,
+      // Phase 2 batch/model metadata (optional, populated when model path used)
+      candidate_batches: z.number().int().nonnegative().optional(),
+      batches_sent: z.number().int().nonnegative().optional(),
+      batches_succeeded: z.number().int().nonnegative().optional(),
+      batches_failed: z.number().int().nonnegative().optional(),
+      batches_omitted_by_budget: z.number().int().nonnegative().optional(),
     }),
   }),
 );
 export type CompressCommandOutputOutput = z.infer<typeof CompressCommandOutputOutput>;
+
+// ---------------------------------------------------------------------------
+// Phase 2: 模型响应 schemas（内部使用，非对外输出）
+// 模型每次返回零到多个 finding，handler 将其合并到最终输出
+// ---------------------------------------------------------------------------
+
+export const ModelCommandFindingSchema = z.strictObject({
+  diagnostic_id: z.string().optional(),
+  kind: CommandOutputFindingSchema.shape.kind.optional(),
+  message: z.string().optional(),
+  confidence: ConfidenceSchema.optional(),
+  actionability: z.enum(["high", "medium", "low"]).optional(),
+});
+export type ModelCommandFinding = z.infer<typeof ModelCommandFindingSchema>;
+
+export const ModelCommandOutputResponseSchema = z.strictObject({
+  findings: z.array(ModelCommandFindingSchema).max(5),
+});
+
+export const ModelDiffFindingSchema = z.strictObject({
+  risk: z.string().optional(),
+  severity: SeveritySchema.optional(),
+  file: z.string(),
+  hunk: z.string().optional(),
+  location: z.string().optional(),
+  explanation: z.string().optional(),
+  evidence: z.string(),
+  introduced_by_diff: z.boolean().optional(),
+  confidence: ConfidenceSchema.optional(),
+});
+export type ModelDiffFinding = z.infer<typeof ModelDiffFindingSchema>;
+
+export const ModelDiffReviewResponseSchema = z.strictObject({
+  findings: z.array(ModelDiffFindingSchema).max(5),
+});
 
 // ---------------------------------------------------------------------------
 // 输入 / 输出 schema 注册表（供 validateInput / validateOutput 使用）

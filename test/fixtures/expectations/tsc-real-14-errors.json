@@ -1,0 +1,14 @@
+{
+  "fixture": "command-output/tsc-real-14-errors.txt",
+  "command": "npx tsc --noEmit",
+  "exit_code": 2,
+  "expected": {
+    "diagnostics": 14,
+    "findings": 14,
+    "must_include_codes": ["TS2345", "TS2322", "TS18046", "TS2339", "TS2304", "TS2532", "TS2554", "TS2307", "TS18047", "TS2367", "TS6133", "TS2588"],
+    "must_include_files": ["src/app.ts", "src/utils.ts", "src/helpers.ts"],
+    "must_not_include_evidence": ["Found 14 errors"],
+    "max_structure_only_model_calls": 0,
+    "max_enrichment_model_calls": 4
+  }
+}

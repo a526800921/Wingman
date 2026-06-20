@@ -1,0 +1,14 @@
+--- a/src/handler.ts
++++ b/src/handler.ts
+@@ -10,6 +10,12 @@ export async function handleRequest(req: Request): Promise<Response> {
+   const user = await getUser(req);
+
+   if (!user) {
++    // DEBUG: left in by mistake
++    console.log("no user found for request", req.url);
++    // HARDCODED SECRET: should come from env
++    const fallbackToken = "sk-test-1234567890abcdef";
++    const query = "SELECT * FROM users WHERE id = '" + req.params.id + "'";
++
+     return new Response("Unauthorized", { status: 401 });
+   }

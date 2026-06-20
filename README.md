@@ -135,7 +135,7 @@ claude mcp list
 npm install
 npm run build        # tsc 编译
 npm run dev          # tsx 直接运行
-npm test             # 运行测试（93 条）
+npm test             # 运行测试（175 条）
 npm run smoke        # 冒烟测试（不依赖 API key）
 ```
 
@@ -152,6 +152,9 @@ src/
 ├── schema.ts             # 输入/输出 Zod schema
 ├── prompts.ts            # Stateless prompt 构造 + 反注入
 ├── logger.ts             # stderr + 文件日志（trace ID + 耗时）
+├── diagnostics/
+│   ├── types.ts          # CommandDiagnostic 内部类型
+│   └── tsc-parser.ts     # TypeScript 输出状态机解析器
 ├── chunking/
 │   ├── types.ts          # 分块通用类型（InputChunk, OmittedChunk, ChunkMeta）
 │   ├── diff.ts           # Diff 分块（按文件→hunk，优先级排序，省略明细）
@@ -189,6 +192,33 @@ split → analyze chunk → merge → final result
 - **命令输出分块**：自动识别 6 种输出类型（tsc/eslint/test/build/stack trace/generic），按错误边界拆分，保留后部失败点。
 - **聚合**：去重相同发现，保留最高 severity，按 severity → confidence → introduced_by_diff 排序。
 - `_meta.chunking` 中记录 `total_chunks`、`analyzed_chunks`、`omitted_chunks` 和省略明细。
+
+> 设计文档：[一期计划](PLAN.md) · [二期计划](PHASE2_PLAN.md) · [二期实施](docs/superpowers/plans/2026-06-20-phase2-implementation.md)
+
+### 三期改进（当前）
+
+在分块框架基础上进一步优化了正确性和延迟：
+
+- **TS diagnostic 状态机解析器**（`src/diagnostics/tsc-parser.ts`）：逐行解析 `tsc --noEmit` 输出，将错误首行 + 缩进 detail + code frame 合并为完整 diagnostic 块，支持 pretty 格式和 ANSI 颜色码。消除了一期"14 个真实错误被拆成 23 个 chunk"的问题。
+- **模型批处理**：确定性解析器可直接产出完整结果（如 tsc 高置信度 diagnostic），模型仅在需要语义增强时按 batch（4-8 个 diagnostic/批）调用，默认上限 5 次调用，受限并发 2。
+- **统一聚合流水线**：所有派生字段（`summary`、`first_failure`、`repeated_errors`、`suggested_source_checks`）基于最终 findings 重新计算，模型结果与启发式结果口径一致。
+- **文件级聚合**（`aux_review_diff_by_file`）：模型路径下 `files` 数组完整填充，可按文件区分"已分析/无问题/省略/截断"状态。
+- **可操作性排序**：`suggested_source_checks` 按项目源码优先于生成文件/依赖排列，每文件去重。
+
+> 设计文档：[Phase 2 修复方案](docs/phase2-tools-fix-plan.md) · [真实场景验证方案](docs/phase2-tools-validation-plan.md) · [P0 落地方案](docs/phase2-validation-p0-plan.md)
+
+### 文档索引
+
+按主题或问题快速定位到对应的设计文档：
+
+| 主题 | 相关文档 | 说明 |
+|------|----------|------|
+| 整体架构 / MCP 协议 | [PLAN.md](PLAN.md) | 一期总体设计：工具定位、安全模型、prompt 注入防护 |
+| 分块框架 / Diff 按文件审查 | [PHASE2_PLAN.md](PHASE2_PLAN.md) | 二期计划：`aux_review_diff_by_file`、`aux_compress_command_output`、统一分块/聚合 |
+| 二期实施步骤 / chunking 模块 | [phase2-implementation](docs/superpowers/plans/2026-06-20-phase2-implementation.md) | 分阶段实施细节、测试策略、subagent 并行开发 |
+| Diagnostic 解析 / 14→20 错误拆分 | [修复方案](docs/phase2-tools-fix-plan.md) | 状态机 parser 设计、batch 策略、`_meta` 字段、回归测试矩阵 |
+| 验证体系 / 样本回放 / 契约断言 | [验证方案](docs/phase2-tools-validation-plan.md) | 真实场景验证框架、匿名化样本库 |
+| P0 落地 / 模型预算 / CI 阻断 | [P0 落地方案](docs/phase2-validation-p0-plan.md) | 最小可落地的验证和预算控制
 
 ## License
 

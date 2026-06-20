@@ -1,0 +1,10 @@
+src/models.ts(50,10): error TS2344: Type '{ id: number; name: string; nested: { deep: boolean; }; }' does not satisfy the constraint 'BaseModel'.
+  The types of 'nested.deep' are incompatible between these types.
+    Type 'boolean' is not assignable to type 'string'.
+src/models.ts(55,3): error TS2322: Type 'number' is not assignable to type 'string'.
+src/types.ts(42,5): error TS2344: Type 'MyComplexType' does not satisfy the constraint 'Record<string, unknown>'.
+  Type 'MyComplexType' is missing the following properties from type 'Record<string, unknown>': id, name, createdAt
+  The expected type comes from property 'data' which is declared here on type 'RequestPayload'
+src/handler.ts(88,12): error TS2345: Argument of type '{ input: string; }' is not assignable to parameter of type 'ValidatedInput'.
+  Property 'validated' is missing in type '{ input: string; }' but required in type 'ValidatedInput'.
+Found 4 errors in 3 files.

@@ -1,0 +1,11 @@
+.next/server/app/page.ts(15,8): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
+.next/server/app/layout.ts(22,5): error TS2322: Type 'boolean' is not assignable to type 'string'.
+src/components/Header.tsx(30,12): error TS2339: Property 'userName' does not exist on type 'Session'.
+src/components/Header.tsx(35,7): error TS2769: No overload matches this call.
+src/utils/api.ts(45,3): error TS18046: 'response' is of type 'unknown'.
+src/services/auth.ts(50,10): error TS2345: Argument of type 'null' is not assignable to parameter of type 'User'.
+src/services/auth.ts(55,4): error TS6133: 'debugMode' is declared but its value is never read.
+dist/shared/constants.js(1,1): error TS1208: 'constants.js' cannot be compiled under '--isolatedModules'.
+src/__tests__/auth.test.ts(20,8): error TS2339: Property 'login' does not exist on type 'AuthService'.
+src/__tests__/auth.test.ts(25,6): error TS2554: Expected 3 arguments, but got 2.
+Found 10 errors in 5 files.

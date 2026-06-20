@@ -1,0 +1,15 @@
+{
+  "fixture": "command-output/tsc-generated-and-source.txt",
+  "command": "npx tsc --noEmit",
+  "exit_code": 2,
+  "expected": {
+    "diagnostics": 10,
+    "findings": 10,
+    "must_include_codes": ["TS2345", "TS2322", "TS2339", "TS2769", "TS18046", "TS6133", "TS1208", "TS2554"],
+    "must_include_files": ["src/components/Header.tsx", "src/utils/api.ts", "src/services/auth.ts", "src/__tests__/auth.test.ts"],
+    "generated_findings": 3,
+    "must_not_include_evidence": ["Found 10 errors"],
+    "max_structure_only_model_calls": 0,
+    "max_enrichment_model_calls": 3
+  }
+}

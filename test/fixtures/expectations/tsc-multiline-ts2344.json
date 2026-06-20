@@ -1,0 +1,14 @@
+{
+  "fixture": "command-output/tsc-multiline-ts2344.txt",
+  "command": "npx tsc --noEmit",
+  "exit_code": 2,
+  "expected": {
+    "diagnostics": 4,
+    "findings": 4,
+    "must_include_codes": ["TS2344", "TS2322", "TS2345"],
+    "must_include_files": ["src/models.ts", "src/types.ts", "src/handler.ts"],
+    "must_not_include_evidence": ["Found 4 errors"],
+    "max_structure_only_model_calls": 0,
+    "max_enrichment_model_calls": 2
+  }
+}

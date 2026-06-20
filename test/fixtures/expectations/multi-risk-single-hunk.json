@@ -1,0 +1,8 @@
+{
+  "fixture": "diffs/multi-risk-single-hunk.diff",
+  "expected": {
+    "min_findings": 2,
+    "must_include_risks": ["token", "sql", "console"],
+    "files_count": 1
+  }
+}

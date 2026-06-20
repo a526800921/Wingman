@@ -4,6 +4,8 @@
  */
 
 import { detectOutputKind } from "../chunking/command-output.js";
+import { parseTscDiagnostics, classifySourceKind } from "../diagnostics/tsc-parser.js";
+import type { CommandDiagnostic } from "../diagnostics/types.js";
 import { logger } from "../logger.js";
 
 export interface CommandOutputFinding {
@@ -30,24 +32,42 @@ export interface CompressCommandOutputFallbackResult {
   is_authoritative: false;
 }
 
-function extractTscErrors(output: string): CommandOutputFinding[] {
-  const findings: CommandOutputFinding[] = [];
-  const re = /^(.+?)\((\d+),(\d+)\):\s*error\s+(TS\d+):\s*(.+)$/gm;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(output)) !== null) {
-    findings.push({
-      kind: "type_error",
-      file: match[1],
-      line: Number(match[2]),
-      column: Number(match[3]),
-      error_code: match[4],
-      message: match[5].trim(),
-      evidence: match[0],
-      confidence: "high",
-      first_seen_index: match.index,
-    });
+/**
+ * Convert a CommandDiagnostic (from the shared parser) to a CommandOutputFinding.
+ * source_kind / actionability are not stored on the finding (strict schema won't
+ * accept unknown fields); they are used only for sorting suggestions.
+ */
+function diagnosticToFinding(d: CommandDiagnostic): CommandOutputFinding {
+  return {
+    kind: mapDiagnosticKind(d.kind),
+    message: d.headline,
+    error_code: d.error_code,
+    rule_id: d.rule_id,
+    file: d.file,
+    line: d.line,
+    column: d.column,
+    evidence: d.evidence,
+    confidence: d.parser_confidence === "high" ? "high" : d.parser_confidence === "medium" ? "medium" : "low",
+    first_seen_index: d.first_seen_index,
+  };
+}
+
+function mapDiagnosticKind(kind: import("../diagnostics/types.js").DiagnosticKind): CommandOutputFinding["kind"] {
+  switch (kind) {
+    case "type_error": return "type_error";
+    case "lint_error": return "lint_error";
+    case "test_failure": return "test_failure";
+    case "build_error": return "build_error";
+    case "runtime_exception": return "runtime_exception";
+    case "warning": return "warning";
+    case "info": return "info";
+    default: return "unknown";
   }
-  return findings;
+}
+
+function extractTscErrors(output: string): CommandOutputFinding[] {
+  const result = parseTscDiagnostics(output);
+  return result.diagnostics.map(diagnosticToFinding);
 }
 
 function extractEslintErrors(output: string): CommandOutputFinding[] {
@@ -222,9 +242,30 @@ export function compressCommandOutputFallback(
     (firstFailure ? `First failure: ${firstFailure.message}. ` : "") +
     (repeatedErrors.length > 0 ? `${repeatedErrors.length} repeated error pattern(s).` : "");
 
+  // Sort findings for suggestions: project source before generated/dependency files
+  const sourceKindPriority: Record<string, number> = { project: 0, test: 1, generated: 2, dependency: 3, unknown: 4 };
+  const computeSuggestionPriority = (f: CommandOutputFinding): number => {
+    const sk = classifySourceKind(f.file);
+    const skPriority = sourceKindPriority[sk] ?? 99;
+    // Error kinds before warnings
+    const isError = f.kind !== "warning" && f.kind !== "info" ? 0 : 1;
+    return skPriority * 10 + isError;
+  };
+  const sortForSuggestions = [...deduped].sort((a, b) => {
+    const pA = computeSuggestionPriority(a);
+    const pB = computeSuggestionPriority(b);
+    if (pA !== pB) return pA - pB;
+    return (a.first_seen_index ?? 0) - (b.first_seen_index ?? 0);
+  });
+
   const suggestedChecks: string[] = [];
-  for (const f of deduped.slice(0, 5)) {
-    if (f.file) suggestedChecks.push(`Check ${f.file}${f.line ? `:${f.line}` : ""}: ${f.message}`);
+  const seenFiles = new Set<string>();
+  for (const f of sortForSuggestions) {
+    if (suggestedChecks.length >= 5) break;
+    if (f.file && !seenFiles.has(f.file)) {
+      seenFiles.add(f.file);
+      suggestedChecks.push(`Check ${f.file}${f.line ? `:${f.line}` : ""}: ${f.message}`);
+    }
   }
 
   const suggestedCommands: string[] = [];

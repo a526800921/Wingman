@@ -5,10 +5,12 @@ import { ChatClient } from "../chat-client.js";
 import {
   validateInput,
   validateOutput,
+  ModelDiffReviewResponseSchema,
   type ReviewDiffByFileInput,
   type ReviewDiffByFileOutput,
   type DiffFinding,
 } from "../schema.js";
+import type { InputChunk } from "../chunking/types.js";
 import {
   buildReviewDiffByFileSystemPrompt,
   buildReviewDiffByFileUserMessage,
@@ -24,6 +26,76 @@ type ConfigLike = ReturnType<typeof loadConfig> | ReturnType<typeof loadConfigFa
 
 function hasApiKey(config: ConfigLike): config is AppConfig {
   return "modelApiKey" in config && typeof (config as AppConfig).modelApiKey === "string" && (config as AppConfig).modelApiKey.length > 0;
+}
+
+function findingsFromModel(
+  parsed: Record<string, unknown>,
+  chunkLabel: string,
+): DiffFinding {
+  return {
+    risk: String(parsed.risk ?? ""),
+    severity: (parsed.severity as DiffFinding["severity"]) ?? "low",
+    file: String(parsed.file ?? chunkLabel),
+    hunk: parsed.hunk ? String(parsed.hunk) : undefined,
+    location: parsed.location ? String(parsed.location) : undefined,
+    explanation: parsed.explanation ? String(parsed.explanation) : undefined,
+    evidence: String(parsed.evidence ?? ""),
+    introduced_by_diff: typeof parsed.introduced_by_diff === "boolean" ? parsed.introduced_by_diff : undefined,
+    confidence: (parsed.confidence as DiffFinding["confidence"]) ?? "medium",
+  };
+}
+
+/**
+ * Aggregate model findings by file to produce FileReview[] structure.
+ */
+function aggregateByFile(
+  findings: DiffFinding[],
+  chunks: InputChunk[],
+  meta: ChunkMeta,
+): ReviewDiffByFileOutput["files"] {
+  const fileMap = new Map<string, { findings: DiffFinding[]; chunks: InputChunk[] }>();
+
+  for (const f of findings) {
+    const key = f.file;
+    if (!fileMap.has(key)) fileMap.set(key, { findings: [], chunks: [] });
+    fileMap.get(key)!.findings.push(f);
+  }
+
+  for (const chunk of chunks) {
+    const filePath = chunk.source ?? chunk.label;
+    if (!fileMap.has(filePath)) fileMap.set(filePath, { findings: [], chunks: [] });
+    fileMap.get(filePath)!.chunks.push(chunk);
+  }
+
+  for (const omitted of meta.omitted) {
+    const filePath = omitted.source ?? omitted.label;
+    if (!fileMap.has(filePath)) {
+      fileMap.set(filePath, { findings: [], chunks: [] });
+    }
+  }
+
+  const files: ReviewDiffByFileOutput["files"] = [];
+  for (const [file, data] of fileMap) {
+    const isOmitted = meta.omitted.some(o => (o.source ?? o.label) === file);
+    const analysisStatus = isOmitted
+      ? "omitted"
+      : data.findings.length === 0
+        ? "clean"
+        : "analyzed";
+
+    files.push({
+      file,
+      change_summary: `${file}: ${data.findings.length} finding(s), ${data.chunks.length} chunk(s), status=${analysisStatus}`,
+      findings: data.findings,
+      suggested_source_checks: data.findings.length > 0
+        ? [`${file}: Review findings above`]
+        : [],
+      suggested_tests: [`Run existing tests for ${file}`],
+      uncertainties: [],
+    });
+  }
+
+  return files;
 }
 
 /**
@@ -106,38 +178,45 @@ export async function handleReviewDiffByFile(
 
       let succeededChunks = 0;
       let failedChunks = 0;
+      const CONCURRENCY = 2;
+      const MAX_MODEL_CHUNKS = 20;
 
       const systemPrompt = buildReviewDiffByFileSystemPrompt();
-      for (const chunk of chunks) {
-        const chunkLabel = chunk.source ?? chunk.label;
-        const userMsg = buildReviewDiffByFileUserMessage(
-          chunk.text, chunkLabel, chunk.truncated, focus,
-        );
-        try {
-          const raw = await client.chat(systemPrompt, userMsg);
-          const jsonStr = extractJsonFromResponse(raw);
-          const parsed = JSON.parse(jsonStr);
-          if (parsed && typeof parsed === "object" && parsed.risk && parsed.risk !== "no_issues") {
-            allFindings.push({
-              risk: String(parsed.risk ?? ""),
-              severity: (parsed.severity as DiffFinding["severity"]) ?? "low",
-              file: String(parsed.file ?? chunkLabel),
-              hunk: parsed.hunk ? String(parsed.hunk) : undefined,
-              location: parsed.location ? String(parsed.location) : undefined,
-              explanation: parsed.explanation ? String(parsed.explanation) : undefined,
-              evidence: String(parsed.evidence ?? ""),
-              introduced_by_diff: typeof parsed.introduced_by_diff === "boolean" ? parsed.introduced_by_diff : undefined,
-              confidence: (parsed.confidence as DiffFinding["confidence"]) ?? "medium",
+      const cappedChunks = chunks.slice(0, MAX_MODEL_CHUNKS);
+
+      for (let i = 0; i < cappedChunks.length; i += CONCURRENCY) {
+        const slice = cappedChunks.slice(i, i + CONCURRENCY);
+        const promises = slice.map(async (chunk) => {
+          const chunkLabel = chunk.source ?? chunk.label;
+          const userMsg = buildReviewDiffByFileUserMessage(
+            chunk.text, chunkLabel, chunk.truncated, focus,
+          );
+          try {
+            const raw = await client.chat(systemPrompt, userMsg);
+            const jsonStr = extractJsonFromResponse(raw);
+            const parsed = JSON.parse(jsonStr);
+
+            // Handle array format: {"findings": [...]}
+            if (parsed && Array.isArray(parsed.findings)) {
+              for (const f of parsed.findings) {
+                if (f.risk && f.risk !== "no_issues") {
+                  allFindings.push(findingsFromModel(f, chunkLabel));
+                }
+              }
+            } else if (parsed && typeof parsed === "object" && parsed.risk && parsed.risk !== "no_issues") {
+              // Legacy single-object format
+              allFindings.push(findingsFromModel(parsed, chunkLabel));
+            }
+            succeededChunks++;
+          } catch (err) {
+            failedChunks++;
+            log.warn("review-diff-by-file: chunk model call failed", {
+              chunk: chunkLabel,
+              error: err instanceof Error ? err.message : String(err),
             });
           }
-          succeededChunks++;
-        } catch (err) {
-          failedChunks++;
-          log.warn("review-diff-by-file: chunk model call failed", {
-            chunk: chunkLabel,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+        });
+        await Promise.allSettled(promises);
       }
 
       // If every chunk failed, fall back entirely to heuristic
@@ -156,10 +235,11 @@ export async function handleReviewDiffByFile(
     // Model path succeeded — validate and return
     const deduped = deduplicateFindings(allFindings, buildFindingIdentity);
     const sorted = sortFindings(deduped);
+    const files = aggregateByFile(sorted, chunks, meta);
 
     const output: ReviewDiffByFileOutput = {
-      overall_summary: `Model review of ${chunks.length} chunk(s). ${sorted.length} finding(s).`,
-      files: [],
+      overall_summary: `Model review of ${chunks.length} chunk(s) across ${files.length} file(s). ${sorted.length} finding(s).`,
+      files,
       top_risks: sorted.slice(0, 10),
       omitted_files: meta.omitted.map(o => ({ file: o.source ?? o.label, reason: o.reason })),
       is_authoritative: false,

@@ -4,6 +4,8 @@
  */
 
 import type { InputChunk, ChunkMeta, OmittedChunk } from "./types.js";
+import { parseTscDiagnostics } from "../diagnostics/tsc-parser.js";
+import type { CommandDiagnostic } from "../diagnostics/types.js";
 import { logger } from "../logger.js";
 
 export type OutputKind =
@@ -66,25 +68,84 @@ export function chunkCommandOutput(
   }
 
   function chunkTscErrors(text: string): void {
-    const re = /^(.+?\(\d+,\d+\):\s*error\s+TS\d+:.*)$/gm;
-    let lastIdx = 0;
-    let match: RegExpExecArray | null;
-    while ((match = re.exec(text)) !== null) {
-      if (match.index > lastIdx) {
-        const gap = text.slice(lastIdx, match.index).trim();
-        if (gap) {
-          chunks.push({ id: `chunk-${chunkId++}`, kind: "command-section", label: "tsc context", text: gap, truncated: false });
-        }
+    const parsed = parseTscDiagnostics(text);
+    const { diagnostics } = parsed;
+
+    if (diagnostics.length === 0) {
+      // No structured diagnostics found — fall back to full text chunk
+      if (text.trim()) {
+        chunks.push({ id: `chunk-${chunkId++}`, kind: "command-section", label: "tsc output", text, truncated: false });
       }
-      chunks.push({ id: `chunk-${chunkId++}`, kind: "command-section", label: `tsc error #${chunkId}`, text: match[0], truncated: false });
-      lastIdx = match.index + match[0].length;
+      return;
     }
-    if (lastIdx < text.length) {
-      const tail = text.slice(lastIdx).trim();
-      if (tail) chunks.push({ id: `chunk-${chunkId++}`, kind: "command-section", label: "tsc tail", text: tail, truncated: false });
+
+    // Group diagnostics into batches by character budget (for model consumption)
+    // Each batch is a JSON-serialized array of diagnostic summary objects
+    const MAX_BATCH_CHARS = 6000;
+    const MAX_PER_BATCH = 8;
+    let batch: CommandDiagnostic[] = [];
+    let batchChars = 0;
+
+    const flushBatch = () => {
+      if (batch.length === 0) return;
+      const json = JSON.stringify(batch.map(d => ({
+        id: d.id,
+        kind: d.kind,
+        file: d.file,
+        line: d.line,
+        column: d.column,
+        error_code: d.error_code,
+        headline: d.headline,
+        details: d.details.slice(0, 5),  // limit detail lines per diagnostic in batch
+        evidence: d.evidence,
+        source_kind: d.source_kind,
+        actionability: d.actionability,
+        parser_confidence: d.parser_confidence,
+      })));
+      chunks.push({
+        id: `chunk-${chunkId++}`,
+        kind: "command-section",
+        label: `tsc diagnostics batch #${chunkId}`,
+        text: json,
+        truncated: batchChars > MAX_BATCH_CHARS,
+      });
+      batch = [];
+      batchChars = 0;
+    };
+
+    for (const d of diagnostics) {
+      const dJson = JSON.stringify({
+        id: d.id,
+        kind: d.kind,
+        file: d.file,
+        line: d.line,
+        column: d.column,
+        error_code: d.error_code,
+        headline: d.headline,
+        evidence: d.evidence,
+        source_kind: d.source_kind,
+      });
+      const dChars = dJson.length;
+
+      if (batch.length >= MAX_PER_BATCH || (batchChars + dChars > MAX_BATCH_CHARS && batch.length > 0)) {
+        flushBatch();
+      }
+      batch.push(d);
+      batchChars += dChars;
     }
-    if (chunks.length === 0 && text.trim()) {
-      chunks.push({ id: `chunk-${chunkId++}`, kind: "command-section", label: "tsc output", text: text, truncated: false });
+    flushBatch();
+
+    // Add unrecognized segments as context chunks
+    for (const seg of parsed.unrecognized_segments) {
+      if (seg.trim()) {
+        chunks.push({
+          id: `chunk-${chunkId++}`,
+          kind: "command-section",
+          label: "unrecognized context",
+          text: seg,
+          truncated: false,
+        });
+      }
     }
   }
 

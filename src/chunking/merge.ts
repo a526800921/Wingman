@@ -56,13 +56,24 @@ const CONFIDENCE_ORDER: Record<string, number> = {
   high: 0, medium: 1, low: 2,
 };
 
+const ACTIONABILITY_ORDER: Record<string, number> = {
+  high: 0, medium: 1, low: 2,
+};
+
 export function sortFindings<T extends {
   severity?: string;
   confidence?: string;
   introduced_by_diff?: boolean;
   first_seen_index?: number;
+  actionability?: string;
 }>(findings: T[]): T[] {
   return [...findings].sort((a, b) => {
+    // Actionability first (for command output findings)
+    if (a.actionability || b.actionability) {
+      const actA = ACTIONABILITY_ORDER[a.actionability ?? "low"] ?? 99;
+      const actB = ACTIONABILITY_ORDER[b.actionability ?? "low"] ?? 99;
+      if (actA !== actB) return actA - actB;
+    }
     const sevA = SEVERITY_ORDER[a.severity ?? "low"] ?? 99;
     const sevB = SEVERITY_ORDER[b.severity ?? "low"] ?? 99;
     if (sevA !== sevB) return sevA - sevB;
@@ -101,6 +112,79 @@ export function deduplicateFindings<T extends {
       if (newSev < existingSev) {
         result[duplicate] = f;
         seen[duplicate] = id;
+      }
+    } else {
+      seen.push(id);
+      result.push(f);
+    }
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Command output finding identity (kind + message + error_code based)
+// ---------------------------------------------------------------------------
+
+export interface CommandFindingIdentity {
+  normalizedKind: string;
+  normalizedMessage: string;
+  file?: string;
+  errorCode?: string;
+}
+
+export function buildCommandFindingIdentity(finding: {
+  kind?: string;
+  message?: string;
+  file?: string;
+  error_code?: string;
+}): CommandFindingIdentity {
+  return {
+    normalizedKind: (finding.kind ?? "").toLowerCase().trim(),
+    normalizedMessage: (finding.message ?? "").toLowerCase().trim().slice(0, 200),
+    file: finding.file,
+    errorCode: finding.error_code,
+  };
+}
+
+export function isSameCommandFinding(a: CommandFindingIdentity, b: CommandFindingIdentity): boolean {
+  if (a.normalizedKind !== b.normalizedKind) return false;
+  if (a.file && b.file && a.file !== b.file) return false;
+  if (a.errorCode && b.errorCode && a.errorCode !== b.errorCode) return false;
+  const shorter = a.normalizedMessage.length < b.normalizedMessage.length
+    ? a.normalizedMessage : b.normalizedMessage;
+  const longer = shorter === a.normalizedMessage ? b.normalizedMessage : a.normalizedMessage;
+  if (shorter && longer && !longer.includes(shorter)) return false;
+  return true;
+}
+
+/**
+ * Deduplicate command output findings.
+ * Keeps the first occurrence preserving order; upgrades severity/confidence
+ * when a duplicate has a higher-confidence classification.
+ */
+export function deduplicateCommandFindings<T extends {
+  kind?: string;
+  message?: string;
+  file?: string;
+  error_code?: string;
+  confidence?: string;
+}>(
+  findings: T[],
+  getIdentity: (f: T) => CommandFindingIdentity = buildCommandFindingIdentity,
+): T[] {
+  const seen: CommandFindingIdentity[] = [];
+  const result: T[] = [];
+  const CONF_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
+  for (const f of findings) {
+    const id = getIdentity(f);
+    const dupIdx = seen.findIndex((s) => isSameCommandFinding(s, id));
+    if (dupIdx >= 0) {
+      const existConf = CONF_ORDER[result[dupIdx].confidence ?? "low"] ?? 99;
+      const newConf = CONF_ORDER[f.confidence ?? "low"] ?? 99;
+      if (newConf < existConf) {
+        result[dupIdx] = f;
+        seen[dupIdx] = id;
       }
     } else {
       seen.push(id);
