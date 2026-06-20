@@ -131,6 +131,7 @@ function buildFallbackOutput(
     files: fb.files,
     top_risks: sorted.slice(0, 10),
     omitted_files: fb.omitted_files,
+    analysis_status: "partial" as const,
     is_authoritative: false,
     _meta: {
       provider,
@@ -138,6 +139,9 @@ function buildFallbackOutput(
       tokens_used: 0,
       input_truncated: meta.input_truncated,
       fallback_used: true,
+      analysis_status: "partial" as const,
+      model_attempted: false,
+      model_skip_reason: "model_not_configured",
       chunking: meta,
     },
   };
@@ -243,7 +247,8 @@ export async function handleReviewDiffByFile(
       top_risks: sorted.slice(0, 10),
       omitted_files: meta.omitted.map(o => ({ file: o.source ?? o.label, reason: o.reason })),
       is_authoritative: false,
-      _meta: { provider, model: (config as AppConfig).modelName, input_truncated: meta.input_truncated, fallback_used: false, chunking: meta },
+      analysis_status: meta.input_truncated ? "partial" : "complete" as const,
+      _meta: { provider, model: (config as AppConfig).modelName, input_truncated: meta.input_truncated, fallback_used: false, chunking: meta, analysis_status: meta.input_truncated ? "partial" : "complete" as const, model_attempted: true },
     };
 
     const outValidation = validateOutput("aux_review_diff_by_file", output);

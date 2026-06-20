@@ -1,0 +1,19 @@
+{
+  "fixture": "command-output/vitest-5-failures.txt",
+  "command": "npm test",
+  "exit_code": 1,
+  "expected": {
+    "diagnostics_parsed": 0,
+    "findings_retained": 0,
+    "must_include_codes": ["AssertionError", "Error", "TypeError"],
+    "must_include_files": [
+      "lib/__tests__/claude.test.ts",
+      "lib/__tests__/auth.test.ts",
+      "lib/__tests__/parser.test.ts",
+      "pages/api/data.test.ts"
+    ],
+    "min_findings_from_model": 5,
+    "reported_failed_files": 4,
+    "max_batches_sent": 1
+  }
+}

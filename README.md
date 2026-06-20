@@ -11,6 +11,10 @@ Wingman = junior 拿着 checklist 逐项打勾——"你确认了 X 吗？有没
 
 不替代你的判断，而是确保你的判断路径上没有遗漏明显的检查项。
 
+### 模型优先
+
+Wingman 以模型能力作为语义理解核心：模型负责归纳、风险判断和压缩；本地代码只负责安全、确定性结构、调用预算、证据校验和明确降级。新增语言、测试框架或构建工具通常不需要新增专用 parser。完整架构决策见 [ADR-0001：模型优先架构](docs/adr/0001-model-first.md)。
+
 ## 工具
 
 | 工具 | 用途 |
@@ -135,7 +139,7 @@ claude mcp list
 npm install
 npm run build        # tsc 编译
 npm run dev          # tsx 直接运行
-npm test             # 运行测试（175 条）
+npm test             # 运行测试（176 条）
 npm run smoke        # 冒烟测试（不依赖 API key）
 ```
 
@@ -155,6 +159,12 @@ src/
 ├── diagnostics/
 │   ├── types.ts          # CommandDiagnostic 内部类型
 │   └── tsc-parser.ts     # TypeScript 输出状态机解析器
+├── model-runtime/
+│   ├── types.ts          # 共享模型执行类型（AnalysisStatus, ModelExecutionMeta）
+│   ├── execution.ts      # 模型调用、并发、重试、预算
+│   ├── batching.ts       # payload 预算、单次/分批决策
+│   ├── evidence.ts       # evidence 精确子串校验
+│   └── status.ts         # 分析状态计算（complete/partial/incomplete）
 ├── chunking/
 │   ├── types.ts          # 分块通用类型（InputChunk, OmittedChunk, ChunkMeta）
 │   ├── diff.ts           # Diff 分块（按文件→hunk，优先级排序，省略明细）
@@ -220,6 +230,10 @@ split → analyze chunk → merge → final result
 | Diagnostic 解析 / 14→20 错误拆分 | [修复方案](docs/phase2-tools-fix-plan.md) | 状态机 parser 设计、batch 策略、`_meta` 字段、回归测试矩阵 |
 | 数据完整性 / overlay / diagnostic_id | [回归修复](docs/chunk-optimization-regression-fix-plan.md) | canonical finding 不变量、overlay vs 替换、精确 ID 映射、派生字段语义 |
 | 模型 payload 精简 / 单批策略 | [payload 优化](docs/command-output-model-payload-plan.md) | 紧凑诊断格式、enrichment 决策、按 payload 分批、enrichment 参数 |
+| 模型优先 / 通用命令输出 | [模型优先重构](docs/model-first-command-output-plan.md) | 不依赖专用 parser、evidence 校验、analysis_status、通用分块策略 |
+| 全工具模型优先评审 | [全工具评审](docs/model-first-all-tools-review-plan.md) | 5 工具评审、共享 model-runtime、P0-P4 分阶段重构、fallback 重新定义 |
+| 核心架构原则 / 模型优先 | [ADR-0001](docs/adr/0001-model-first.md) | 模型与本地代码职责边界、fallback、分块和 adapter 准入条件 |
+| 全工具模型优先评审 | [全工具重构计划](docs/model-first-all-tools-review-plan.md) | summarize、compress、review 和 command output 的统一迁移方案 |
 | 验证体系 / 样本回放 / 契约断言 | [验证方案](docs/phase2-tools-validation-plan.md) | 真实场景验证框架、匿名化样本库 |
 | P0 落地 / 模型预算 / CI 阻断 | [P0 落地方案](docs/phase2-validation-p0-plan.md) | 最小可落地的验证和预算控制
 

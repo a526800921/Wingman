@@ -1,0 +1,45 @@
+ FAIL  lib/__tests__/claude.test.ts > ParseError > is an instance of Error
+AssertionError: expected ParseError to be an instance of Error
+ ❯ lib/__tests__/claude.test.ts:71:28
+     69|
+     70| it("is an instance of Error", () => {
+     71|   expect(new ParseError("test")).toBeInstanceOf(Error);
+       |                            ^
+     72| });
+     73|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  lib/__tests__/auth.test.ts > login > rejects invalid credentials
+Error: Expected status 401 but got 200
+ ❯ lib/__tests__/auth.test.ts:45:15
+     43|   const res = await login({ user: "test", pass: "wrong" });
+     44|
+     45|   expect(res.status).toBe(401);
+       |               ^
+     46| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  lib/__tests__/parser.test.ts > stream > handles empty chunk
+Error: Timeout waiting for chunk
+ ❯ lib/__tests__/parser.test.ts:102:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  lib/__tests__/parser.test.ts > stream > yields partial result on close
+AssertionError: expected [] to have length 1
+ ❯ lib/__tests__/parser.test.ts:115:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  pages/api/data.test.ts > GET > returns 400 for missing query
+TypeError: Cannot read properties of undefined (reading 'id')
+ ❯ pages/api/data.test.ts:22:10
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+ Test Files  4 failed | 1 passed (5)
+      Tests  5 failed | 7 passed (12)
+   Start at  10:30:45
+   Duration  1.23s

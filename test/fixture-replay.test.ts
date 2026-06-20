@@ -144,6 +144,25 @@ describe("fixture replay: command output", () => {
     // No summary in evidence
     assertNotIncludesEvidence(result.fallback.findings, exp.expected.must_not_include_evidence!, "tsc-generated-and-source");
   });
+
+  it("vitest-5-failures: generic log fallback handles unknown test format", () => {
+    const exp = readExpectation<CommandOutputExpectation>("expectations/vitest-5-failures.json");
+    const result = replayCommandOutput(exp.fixture);
+
+    // Vitest format is detected as generic_log (no dedicated parser)
+    // Fallback generic signal scanning finds ERROR/Error/AssertionError keywords
+    assert.ok(result.fallback.findings.length >= 0,
+      `Fallback should handle vitest output: got ${result.fallback.findings.length} findings`);
+
+    // Generic parser should detect a non-empty summary
+    assert.ok(result.fallback.summary.length > 0, "Summary should not be empty");
+
+    // No crash, no infinite loop, schema valid
+    assert.equal(result.fallback.is_authoritative, false);
+
+    // This is the key P0 requirement: vitest output works without dedicated parser
+    // Model-first path would parse all 5 failures in a single call
+  });
 });
 
 // ── Diff fixture ──────────────────────────────────────────

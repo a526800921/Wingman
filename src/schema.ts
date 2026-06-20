@@ -29,12 +29,29 @@ export const UncertaintySchema = z.strictObject({
 });
 export type Uncertainty = z.infer<typeof UncertaintySchema>;
 
+// ── Unified analysis status ───────────────────────────────
+
+export const AnalysisStatusSchema = z.enum(["complete", "partial", "incomplete"]);
+export type AnalysisStatus = z.infer<typeof AnalysisStatusSchema>;
+
+export const ReportedTotalsSchema = z.strictObject({
+  failures: z.number().int().nonnegative().optional(),
+  errors: z.number().int().nonnegative().optional(),
+  warnings: z.number().int().nonnegative().optional(),
+  failed_files: z.number().int().nonnegative().optional(),
+});
+
 export const ResultMetaSchema = z.strictObject({
   provider: z.string().optional(),
   model: z.string(),
   tokens_used: z.number().int().nonnegative().optional(),
   input_truncated: z.boolean(),
   fallback_used: z.boolean(),
+  // P0: unified reliability semantics
+  analysis_status: AnalysisStatusSchema.optional(),
+  model_attempted: z.boolean().optional(),
+  model_skip_reason: z.string().optional(),
+  model_failure_reason: z.string().optional(),
 });
 export type ResultMeta = z.infer<typeof ResultMetaSchema>;
 
@@ -146,6 +163,7 @@ export type FileKind = z.infer<typeof FileKindSchema>;
 
 export const SummarizeFileOutput = authoritativeMarker.merge(
   z.strictObject({
+    analysis_status: AnalysisStatusSchema.default("complete"),
     summary: z.string(),
     important_symbols: z.array(ImportantSymbolSchema),
     evidence: z.array(EvidenceSchema),
@@ -162,6 +180,7 @@ export type SummarizeFileOutput = z.infer<typeof SummarizeFileOutput>;
 
 export const CompressTextOutput = authoritativeMarker.merge(
   z.strictObject({
+    analysis_status: AnalysisStatusSchema.default("complete"),
     summary: z.string(),
     key_facts: z.array(z.string()),
     discarded_or_low_confidence: z.array(z.string()),
@@ -173,6 +192,7 @@ export type CompressTextOutput = z.infer<typeof CompressTextOutput>;
 
 export const ReviewDiffOutput = authoritativeMarker.merge(
   z.strictObject({
+    analysis_status: AnalysisStatusSchema.default("complete"),
     change_summary: z.string(),
     possible_risks: z.array(PossibleRiskSchema),
     suggested_source_checks: z.array(z.string()),
@@ -246,6 +266,7 @@ export type ReviewDiffByFileInput = z.infer<typeof ReviewDiffByFileInput>;
 
 export const ReviewDiffByFileOutput = authoritativeMarker.merge(
   z.strictObject({
+    analysis_status: AnalysisStatusSchema.default("complete"),
     overall_summary: z.string(),
     files: z.array(FileReviewSchema),
     top_risks: z.array(DiffFindingSchema),
@@ -257,6 +278,11 @@ export const ReviewDiffByFileOutput = authoritativeMarker.merge(
       input_truncated: z.boolean(),
       fallback_used: z.boolean(),
       chunking: ChunkMetaSchema,
+      // P0: unified reliability semantics
+      analysis_status: AnalysisStatusSchema.optional(),
+      model_attempted: z.boolean().optional(),
+      model_skip_reason: z.string().optional(),
+      model_failure_reason: z.string().optional(),
       // Phase 2: number of files included in aggregated output
       files_analyzed: z.number().int().nonnegative().optional(),
       files_omitted: z.number().int().nonnegative().optional(),
@@ -295,12 +321,14 @@ export const CompressCommandOutputInput = z.strictObject({
   exit_code: z.number().int().optional(),
   focus: z.string().optional(),
   max_chars: z.number().int().min(1).max(300_000).default(120_000).optional(),
+  analysis_mode: z.enum(["model_first", "auto", "deterministic_only"]).default("model_first").optional(),
 });
 export type CompressCommandOutputInput = z.infer<typeof CompressCommandOutputInput>;
 
 export const CompressCommandOutputOutput = authoritativeMarker.merge(
   z.strictObject({
     summary: z.string(),
+    analysis_status: AnalysisStatusSchema,
     first_failure: CommandOutputFindingSchema.optional(),
     primary_actionable_failure: CommandOutputFindingSchema.optional(),
     findings: z.array(CommandOutputFindingSchema),
@@ -308,6 +336,8 @@ export const CompressCommandOutputOutput = authoritativeMarker.merge(
     suggested_source_checks: z.array(z.string()),
     suggested_next_commands: z.array(z.string()),
     discarded_or_low_confidence: z.array(z.string()),
+    uncertainties: z.array(z.string()).optional(),
+    reported_totals: ReportedTotalsSchema.optional(),
     _meta: z.strictObject({
       provider: z.string().optional(),
       model: z.string(),
@@ -315,10 +345,18 @@ export const CompressCommandOutputOutput = authoritativeMarker.merge(
       input_truncated: z.boolean(),
       fallback_used: z.boolean(),
       chunking: ChunkMetaSchema,
+      // Analysis status metadata
+      analysis_status: AnalysisStatusSchema.optional(),
+      model_attempted: z.boolean().optional(),
+      model_skip_reason: z.string().optional(),
+      model_failure_reason: z.string().optional(),
       // Canonical counts
       diagnostics_parsed: z.number().int().nonnegative().optional(),
       findings_retained: z.number().int().nonnegative().optional(),
-      // Batch/model metadata (optional, populated when model path used)
+      verified_findings: z.number().int().nonnegative().optional(),
+      partial_findings: z.number().int().nonnegative().optional(),
+      unverified_findings: z.number().int().nonnegative().optional(),
+      // Batch/model metadata
       candidate_batches: z.number().int().nonnegative().optional(),
       batches_sent: z.number().int().nonnegative().optional(),
       batches_succeeded: z.number().int().nonnegative().optional(),
@@ -327,6 +365,10 @@ export const CompressCommandOutputOutput = authoritativeMarker.merge(
       model_findings_received: z.number().int().nonnegative().optional(),
       model_enhancements_applied: z.number().int().nonnegative().optional(),
       unknown_diagnostic_ids: z.number().int().nonnegative().optional(),
+      // Model-first specific
+      detector_hint: z.string().optional(),
+      model_detected_kind: z.string().optional(),
+      kind_mismatch: z.boolean().optional(),
     }),
   }),
 );
@@ -365,6 +407,35 @@ export type ModelDiffFinding = z.infer<typeof ModelDiffFindingSchema>;
 
 export const ModelDiffReviewResponseSchema = z.strictObject({
   findings: z.array(ModelDiffFindingSchema).max(5),
+});
+
+// ── Model-first response (for compress_command_output) ────
+
+export const ModelFirstFindingSchema = z.strictObject({
+  finding_id: z.string(),
+  kind: CommandOutputFindingSchema.shape.kind,
+  message: z.string(),
+  file: z.string().optional(),
+  line: z.number().int().nonnegative().optional(),
+  column: z.number().int().nonnegative().optional(),
+  error_code: z.string().optional(),
+  test_name: z.string().optional(),
+  evidence: z.string(),
+  confidence: ConfidenceSchema,
+});
+export type ModelFirstFinding = z.infer<typeof ModelFirstFindingSchema>;
+
+export const ModelFirstResponseSchema = z.strictObject({
+  detected_kind: z.enum(["test_output", "tsc_error", "eslint_output", "build_output", "stack_trace", "generic_log"]),
+  summary: z.string().optional(),
+  findings: z.array(ModelFirstFindingSchema).max(20),
+  reported_totals: z.strictObject({
+    failures: z.number().int().nonnegative().optional(),
+    errors: z.number().int().nonnegative().optional(),
+    warnings: z.number().int().nonnegative().optional(),
+    failed_files: z.number().int().nonnegative().optional(),
+  }).optional(),
+  uncertainties: z.array(z.string()).optional(),
 });
 
 // ---------------------------------------------------------------------------

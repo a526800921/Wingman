@@ -4,7 +4,10 @@ import { hasModelConfig, loadConfig, loadConfigFallback } from "../config.js";
 import { ChatClient } from "../chat-client.js";
 import {
   validateInput,
+  validateOutput,
   ModelCommandOutputResponseSchema,
+  ModelFirstResponseSchema,
+  type ModelFirstFinding,
   type CompressCommandOutputInput,
   type CompressCommandOutputOutput,
 } from "../schema.js";
@@ -12,6 +15,8 @@ import {
   buildCompressCommandOutputSystemPrompt,
   buildCompressCommandOutputBatchUserMessage,
   buildCompressCommandOutputUserMessage,
+  buildModelFirstSystemPrompt,
+  buildModelFirstUserMessage,
   extractJsonFromResponse,
 } from "../prompts.js";
 import {
@@ -21,6 +26,13 @@ import {
 import { chunkCommandOutput, detectOutputKind } from "../chunking/command-output.js";
 import { deduplicateCommandFindings } from "../chunking/merge.js";
 import { createTraceId, traceLogger, logDuration } from "../logger.js";
+
+function sanitizeEvidence(text: string): string {
+  return text
+    .replace(/Bearer\s+[\w\-.]{20,}/gi, "Bearer ***REDACTED***")
+    .replace(/(api[_-]?key|apikey|secret|token|password)\s*[:=]\s*['"]?[\w\-.]{8,}['"]?/gi, "$1=***REDACTED***")
+    .replace(/(https?:\/\/)[^:@]+:[^@]+@/g, "$1***:***@");
+}
 
 type ConfigLike = ReturnType<typeof loadConfig> | ReturnType<typeof loadConfigFallback>;
 
@@ -33,49 +45,64 @@ function hasApiKey(config: ConfigLike): config is AppConfig {
 const BATCH_MAX_DIAGNOSTICS = 20;
 const BATCH_MAX_CHARS = 6000;
 const MAX_MODEL_CALLS = 5;
+/** Characters below which we treat input as "small" and send in one call. */
+const SINGLE_CALL_CHAR_BUDGET = 12000;
 
 // ── Enrichment decision ───────────────────────────────────
 
 type EnrichmentMode = "off" | "on";
 
-/**
- * Decide whether to call model for semantic enrichment.
- *
- * "off" (skip model):
- *   - focus is "errors only" / "structure" → structure-only request
- *   - all findings have _diagnostic_id (high confidence parser)
- *
- * "on" (call model):
- *   - focus has "root cause", "priority", "impact", "fix", "explain"
- *   - unknown output kind
- */
 function getEnrichmentMode(
   focus: string | undefined,
   outputKind: string,
   findings: CommandOutputFinding[],
 ): EnrichmentMode {
-  // Explicit structure-only request → skip model
   if (focus && /\b(errors?\s*only|structure(d)?\s*only|list\s*only)\b/i.test(focus)) {
     return "off";
   }
-
-  // Explicit enrichment request → call model
   if (focus && /\b(root\s*cause|priority|impact|fix|explain|enrich|semantic)\b/i.test(focus)) {
     return "on";
   }
-
-  // For well-structured output with high-confidence parser → skip
   if (outputKind === "tsc_error" && findings.length > 0 && findings.every(f => f._diagnostic_id)) {
     return "off";
   }
-
-  // Unknown/generic output → benefit from model
   if (outputKind === "generic_log") {
     return "on";
   }
-
   return "off";
 }
+
+// ── Evidence verification ─────────────────────────────────
+
+type EvidenceVerdict = "verified" | "partial" | "unverified";
+
+function verifyEvidence(evidence: string, inputText: string): EvidenceVerdict {
+  if (!evidence || evidence.trim().length === 0) return "unverified";
+  // Exact substring match
+  if (inputText.includes(evidence)) return "verified";
+  // Try line-by-line: any line of evidence found?
+  const lines = evidence.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const matchedLines = lines.filter(l => inputText.includes(l));
+  if (matchedLines.length >= lines.length * 0.5) return "partial";
+  return "unverified";
+}
+
+function modelFindingToOutput(f: ModelFirstFinding, verdict: EvidenceVerdict): CommandOutputFinding {
+  return {
+    kind: f.kind,
+    message: f.message,
+    error_code: f.error_code,
+    file: f.file,
+    line: f.line,
+    column: f.column,
+    evidence: f.evidence,
+    confidence: verdict === "unverified" ? "low" : verdict === "partial" ? "medium" : f.confidence,
+    _diagnostic_id: f.finding_id,
+    _model_verified: verdict,
+  } as CommandOutputFinding & { _model_verified: string };
+}
+
+// ── Main handler ───────────────────────────────────────────
 
 export async function handleCompressCommandOutput(
   input: unknown,
@@ -89,9 +116,9 @@ export async function handleCompressCommandOutput(
   if (!validation.ok) throw new McpError(ErrorCode.InvalidParams, validation.error);
 
   const validated = validation.data as CompressCommandOutputInput;
-  const { command, output, exit_code, focus, max_chars = 120_000 } = validated;
+  const { command, output, exit_code, focus, max_chars = 120_000, analysis_mode = "model_first" } = validated;
 
-  log.info("compress_command_output start", { command, outputLen: output.length, exit_code });
+  log.info("compress_command_output start", { command, outputLen: output.length, exit_code, analysis_mode });
 
   try { return await handleImpl(); }
   finally { logDuration(tid, "compress_command_output done", t0); }
@@ -99,83 +126,322 @@ export async function handleCompressCommandOutput(
   async function handleImpl(): Promise<CallToolResult> {
     const provider = (config as AppConfig).modelProvider ?? process.env.AUX_MODEL_PROVIDER ?? "remote";
     const modelAvailable = hasModelConfig() && hasApiKey(config);
-    const outputKind = detectOutputKind(output);
+    const detectorHint = detectOutputKind(output);
+    const cappedOutput = output.length > max_chars ? output.slice(0, max_chars) : output;
+    const inputTruncated = output.length > max_chars;
 
-    // Step 1: Always run deterministic fallback → canonical findings
-    const fb = compressCommandOutputFallback(command, output, exit_code, max_chars);
-    let canonicalFindings = [...fb.findings];
-
-    // Diagnostic count from parser
-    const parsedCount = fb.findings.length;
-    let modelUsed = false;
-    let modelCallMeta: ModelCallMeta = {
-      candidate_batches: 0, batches_sent: 0,
-      batches_succeeded: 0, batches_failed: 0, batches_omitted_by_budget: 0,
-    };
-
-    // Step 2: Optionally enhance with model (overlay, not replace)
-    // P0-2: enrichment decision — skip model for structure-only requests
-    const enrichmentMode = getEnrichmentMode(focus, outputKind, canonicalFindings);
-
-    if (modelAvailable && enrichmentMode !== "off") {
-      const client = new ChatClient(config as AppConfig);
-      if (client.isAvailable()) {
-        if (outputKind === "tsc_error") {
-          const result = await runTscBatchModelPath(client, output, command, exit_code, focus, max_chars, canonicalFindings, log);
-          if (result) {
-            canonicalFindings = result.findings;
-            modelUsed = true;
-            modelCallMeta = result.meta;
-          }
-        } else {
-          const result = await runChunkModelPath(client, output, command, exit_code, focus, max_chars, log);
-          if (result && result.findings.length > 0) {
-            canonicalFindings = result.findings;
-            modelUsed = true;
-          }
-        }
-      } else {
-        log.info("compress-command-output: ChatClient unavailable, using fallback");
-      }
+    // Mode: deterministic_only → skip model entirely
+    if (analysis_mode === "deterministic_only" || !modelAvailable) {
+      return fallbackOnlyResult(provider, cappedOutput, inputTruncated, command, exit_code, detectorHint);
     }
 
-    // Step 3: Strip internal fields before output
-    const outputFindings = canonicalFindings.map(({ _diagnostic_id, ...rest }) => rest);
+    const client = new ChatClient(config as AppConfig);
+    if (!client.isAvailable()) {
+      log.info("compress-command-output: ChatClient unavailable, using fallback");
+      return fallbackOnlyResult(provider, cappedOutput, inputTruncated, command, exit_code, detectorHint);
+    }
 
-    // Step 4: Re-derive all fields from canonical findings
-    const derived = deriveFromFindings(canonicalFindings, command, exit_code, outputKind, output.length, max_chars);
+    const modelName = (config as AppConfig).modelName;
 
-    // Step 5: Build output
-    const { meta } = chunkCommandOutput(output, max_chars);
+    // ── Model-first path ────────────────────────────────
+    if (analysis_mode === "model_first") {
+      return await modelFirstPath(client, provider, modelName, cappedOutput, command, exit_code, focus, detectorHint, inputTruncated, log);
+    }
 
-    const outputData: CompressCommandOutputOutput = {
-      summary: derived.summary,
-      first_failure: derived.first_failure,
-      primary_actionable_failure: derived.primary_actionable_failure,
-      findings: outputFindings,
-      repeated_errors: derived.repeated_errors,
-      suggested_source_checks: derived.suggested_source_checks,
-      suggested_next_commands: derived.suggested_next_commands,
-      discarded_or_low_confidence: derived.discarded_or_low_confidence,
-      is_authoritative: false,
-      _meta: {
-        provider,
-        model: modelUsed ? (config as AppConfig).modelName : "heuristic",
-        tokens_used: 0,
-        input_truncated: meta.input_truncated,
-        fallback_used: !modelUsed,
-        chunking: meta,
-        diagnostics_parsed: parsedCount,
-        findings_retained: canonicalFindings.length,
-        ...modelCallMeta,
-      } as CompressCommandOutputOutput["_meta"],
-    };
-
-    return { content: [{ type: "text", text: JSON.stringify(outputData) }], isError: false };
+    // ── Auto path (existing batch/parser hybrid) ─────────
+    return await autoPath(client, provider, modelName, cappedOutput, command, exit_code, focus, detectorHint, inputTruncated, max_chars, log);
   }
 }
 
-// ── Model path: TSC batch diagnostics ─────────────────────
+// ── Model-first path ───────────────────────────────────────
+
+async function modelFirstPath(
+  client: ChatClient,
+  provider: string,
+  modelName: string,
+  output: string,
+
+  command: string | undefined,
+  exitCode: number | undefined,
+  focus: string | undefined,
+  detectorHint: string,
+  inputTruncated: boolean,
+  log: ReturnType<typeof traceLogger>,
+): Promise<CallToolResult> {
+  const systemPrompt = buildModelFirstSystemPrompt();
+  const userMsg = buildModelFirstUserMessage(output, command, exitCode, focus, detectorHint);
+
+  // Single call for small inputs; batch for large
+  let modelFindings: ModelFirstFinding[] = [];
+  let modelDetectedKind: string | undefined;
+  let modelSummary: string | undefined;
+  let reportedTotals: CompressCommandOutputOutput["reported_totals"];
+  let uncertainties: string[] = [];
+  let batchesSent = 1;
+  let batchesSucceeded = 1;
+  let batchesFailed = 0;
+
+  if (output.length <= SINGLE_CALL_CHAR_BUDGET) {
+    // Small input: single model call
+    try {
+      const raw = await client.chat(systemPrompt, userMsg);
+      const jsonStr = extractJsonFromResponse(raw);
+      const parsed = JSON.parse(jsonStr);
+      const validated = ModelFirstResponseSchema.safeParse(parsed);
+      if (validated.success) {
+        modelFindings = validated.data.findings;
+        modelDetectedKind = validated.data.detected_kind;
+        modelSummary = validated.data.summary;
+        reportedTotals = validated.data.reported_totals;
+        uncertainties = validated.data.uncertainties ?? [];
+      }
+    } catch (err) {
+      batchesSucceeded = 0;
+      batchesFailed = 1;
+      log.warn("compress-command-output: model-first call failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  } else {
+    // Large input: chunk by generic boundaries, then batch
+    return await autoPath(client, provider, modelName, output, command, exitCode, focus, detectorHint, inputTruncated, output.length, log);
+  }
+
+  // Evidence verification
+  let verifiedCount = 0;
+  let partialCount = 0;
+  let unverifiedCount = 0;
+  const findings: CommandOutputFinding[] = [];
+
+  for (const mf of modelFindings) {
+    const verdict = verifyEvidence(mf.evidence, output);
+    const finding = modelFindingToOutput(mf, verdict);
+    finding.evidence = sanitizeEvidence(finding.evidence);
+
+    if (verdict === "verified") {
+      verifiedCount++;
+      findings.push(finding);
+    } else if (verdict === "partial") {
+      partialCount++;
+      findings.push({ ...finding, confidence: "medium" });
+    } else {
+      unverifiedCount++;
+      // Still include but mark low confidence
+      findings.push({ ...finding, confidence: "low" });
+    }
+  }
+
+  // Non-zero exit + no verified findings → incomplete
+  let analysisStatus: CompressCommandOutputOutput["analysis_status"] = "complete";
+  const discarded: string[] = [];
+
+  if (exitCode !== undefined && exitCode !== 0 && verifiedCount === 0) {
+    analysisStatus = batchesFailed > 0 ? "incomplete" : "partial";
+    if (batchesFailed > 0) {
+      discarded.push("Model analysis failed — results may be incomplete");
+    }
+    if (verifiedCount === 0 && modelFindings.length === 0) {
+      discarded.push("Command exited with non-zero code but no verified findings could be extracted");
+    }
+  }
+
+  // Dedup by finding_id only
+  const seenIds = new Set<string>();
+  const dedupedFindings = findings.filter(f => {
+    const id = f._diagnostic_id;
+    if (!id || seenIds.has(id)) return false;
+    seenIds.add(id);
+    return true;
+  });
+
+  // Derive from model findings
+  const derived = deriveFromFindings(dedupedFindings, command, exitCode, detectorHint, output.length, output.length);
+
+  // Use model summary if available, otherwise derived
+  const summary = modelSummary ?? derived.summary;
+
+  // Check for kind mismatch
+  const kindMismatch = modelDetectedKind ? modelDetectedKind !== detectorHint : false;
+
+  const outputData: CompressCommandOutputOutput = {
+    summary,
+    analysis_status: analysisStatus,
+    first_failure: derived.first_failure,
+    primary_actionable_failure: derived.primary_actionable_failure,
+    findings: dedupedFindings.map(({ _diagnostic_id, ...rest }) => rest),
+    repeated_errors: derived.repeated_errors,
+    suggested_source_checks: derived.suggested_source_checks,
+    suggested_next_commands: derived.suggested_next_commands,
+    discarded_or_low_confidence: [...derived.discarded_or_low_confidence, ...discarded],
+    uncertainties: uncertainties.length > 0 ? uncertainties : undefined,
+    reported_totals: reportedTotals,
+    is_authoritative: false,
+    _meta: {
+      provider,
+      model: modelName,
+      input_truncated: inputTruncated,
+      fallback_used: false,
+      chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "model-first" },
+      analysis_status: analysisStatus,
+      model_attempted: true,
+      model_skip_reason: undefined,
+      model_failure_reason: batchesFailed > 0 ? "model call failed" : undefined,
+      findings_retained: dedupedFindings.length,
+      verified_findings: verifiedCount,
+      partial_findings: partialCount,
+      unverified_findings: unverifiedCount,
+      batches_sent: batchesSent,
+      batches_succeeded: batchesSucceeded,
+      batches_failed: batchesFailed,
+      model_findings_received: modelFindings.length,
+      detector_hint: detectorHint,
+      model_detected_kind: modelDetectedKind,
+      kind_mismatch: kindMismatch,
+    } as CompressCommandOutputOutput["_meta"],
+  };
+
+  const outValidation = validateOutput("aux_compress_command_output", outputData);
+  if (!outValidation.ok) {
+    log.warn("compress-command-output: model-first output validation failed, using fallback");
+    return fallbackOnlyResult(provider, output, inputTruncated, command, exitCode, detectorHint);
+  }
+
+  return { content: [{ type: "text", text: JSON.stringify(outValidation.data) }], isError: false };
+}
+
+// ── Auto path (existing parser + batch hybrid) ─────────────
+
+async function autoPath(
+  client: ChatClient,
+  provider: string,
+  modelName: string,
+  output: string,
+
+  command: string | undefined,
+  exitCode: number | undefined,
+  focus: string | undefined,
+  detectorHint: string,
+  inputTruncated: boolean,
+  maxChars: number,
+  log: ReturnType<typeof traceLogger>,
+): Promise<CallToolResult> {
+  // Step 1: always run fallback → canonical findings
+  const fb = compressCommandOutputFallback(command, output, exitCode, maxChars);
+  let canonicalFindings = [...fb.findings];
+  const parsedCount = fb.findings.length;
+  let modelUsed = false;
+  let modelCallMeta: ModelCallMeta = {
+    candidate_batches: 0, batches_sent: 0,
+    batches_succeeded: 0, batches_failed: 0, batches_omitted_by_budget: 0,
+  };
+
+  const enrichmentMode = getEnrichmentMode(focus, detectorHint, canonicalFindings);
+  if (enrichmentMode !== "off") {
+    if (detectorHint === "tsc_error") {
+      const result = await runTscBatchModelPath(client, output, command, exitCode, focus, maxChars, canonicalFindings, log);
+      if (result) {
+        canonicalFindings = result.findings;
+        modelUsed = true;
+        modelCallMeta = result.meta;
+      }
+    } else {
+      const result = await runChunkModelPath(client, output, command, exitCode, focus, maxChars, log);
+      if (result && result.findings.length > 0) {
+        canonicalFindings = result.findings;
+        modelUsed = true;
+      }
+    }
+  }
+
+  const outputFindings = canonicalFindings.map(({ _diagnostic_id, ...rest }) => rest);
+  const derived = deriveFromFindings(canonicalFindings, command, exitCode, detectorHint, output.length, maxChars);
+
+  const { meta } = chunkCommandOutput(output, maxChars);
+
+  // Non-zero exit + empty findings → incomplete
+  let analysisStatus: CompressCommandOutputOutput["analysis_status"] = "complete";
+  if (exitCode !== undefined && exitCode !== 0 && canonicalFindings.length === 0) {
+    analysisStatus = "incomplete";
+  }
+
+  const outputData: CompressCommandOutputOutput = {
+    summary: derived.summary,
+    analysis_status: analysisStatus,
+    first_failure: derived.first_failure,
+    primary_actionable_failure: derived.primary_actionable_failure,
+    findings: outputFindings,
+    repeated_errors: derived.repeated_errors,
+    suggested_source_checks: derived.suggested_source_checks,
+    suggested_next_commands: derived.suggested_next_commands,
+    discarded_or_low_confidence: derived.discarded_or_low_confidence,
+    is_authoritative: false,
+    _meta: {
+      provider,
+      model: modelUsed ? modelName : "heuristic",
+      tokens_used: 0,
+      input_truncated: meta.input_truncated,
+      fallback_used: !modelUsed,
+      chunking: meta,
+      analysis_status: analysisStatus,
+      model_attempted: modelUsed,
+      model_skip_reason: !modelUsed && enrichmentMode === "off" ? "deterministic_fast_path" : undefined,
+      diagnostics_parsed: parsedCount,
+      findings_retained: canonicalFindings.length,
+      detector_hint: detectorHint,
+      ...modelCallMeta,
+    } as CompressCommandOutputOutput["_meta"],
+  };
+
+  return { content: [{ type: "text", text: JSON.stringify(outputData) }], isError: false };
+}
+
+// ── Fallback-only result ───────────────────────────────────
+
+function fallbackOnlyResult(
+  provider: string,
+  output: string,
+  inputTruncated: boolean,
+  command: string | undefined,
+  exitCode: number | undefined,
+  detectorHint: string,
+): CallToolResult {
+  const fb = compressCommandOutputFallback(command, output, exitCode, output.length);
+  const derived = deriveFromFindings(fb.findings, command, exitCode, detectorHint, output.length, output.length);
+
+  let analysisStatus: CompressCommandOutputOutput["analysis_status"] = "complete";
+  if (exitCode !== undefined && exitCode !== 0 && fb.findings.length === 0) {
+    analysisStatus = "incomplete";
+  }
+
+  const outputData: CompressCommandOutputOutput = {
+    summary: derived.summary,
+    analysis_status: analysisStatus,
+    first_failure: derived.first_failure,
+    primary_actionable_failure: derived.primary_actionable_failure,
+    findings: fb.findings.map(({ _diagnostic_id, ...rest }) => rest),
+    repeated_errors: derived.repeated_errors,
+    suggested_source_checks: derived.suggested_source_checks,
+    suggested_next_commands: derived.suggested_next_commands,
+    discarded_or_low_confidence: derived.discarded_or_low_confidence,
+    is_authoritative: false,
+    _meta: {
+      provider,
+      model: "heuristic",
+      input_truncated: inputTruncated,
+      fallback_used: true,
+      chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "fallback" },
+      analysis_status: analysisStatus,
+      model_attempted: false,
+      model_skip_reason: "model_not_configured",
+      findings_retained: fb.findings.length,
+      detector_hint: detectorHint,
+    } as CompressCommandOutputOutput["_meta"],
+  };
+
+  return { content: [{ type: "text", text: JSON.stringify(outputData) }], isError: false };
+}
+
+// ── Model path: TSC batch diagnostics (auto path only) ────
 
 interface ModelCallMeta {
   candidate_batches: number;
@@ -205,19 +471,11 @@ async function runTscBatchModelPath(
   const { chunks } = chunkCommandOutput(output, maxChars);
   const systemPrompt = buildCompressCommandOutputSystemPrompt();
 
-  // Filter to diagnostic batch chunks
   const diagChunks = chunks.filter(c => c.label.startsWith("tsc diagnostics batch"));
   const cappedBatches = diagChunks.slice(0, MAX_MODEL_CALLS);
 
   if (cappedBatches.length === 0) return null;
 
-  log.info("compress-command-output: batch model path", {
-    totalChunks: chunks.length,
-    diagBatches: diagChunks.length,
-    sent: cappedBatches.length,
-  });
-
-  // Build Map for exact diagnostic_id lookup
   const findingById = new Map<string, CommandOutputFinding>();
   for (const f of canonicalFindings) {
     if (f._diagnostic_id) findingById.set(f._diagnostic_id, f);
@@ -228,7 +486,7 @@ async function runTscBatchModelPath(
   let modelFindingsReceived = 0;
   let enhancementsApplied = 0;
   let unknownIds = 0;
-  const seenOverlayIds = new Set<string>(); // track duplicate model responses
+  const seenOverlayIds = new Set<string>();
 
   for (const batch of cappedBatches) {
     try {
@@ -246,45 +504,25 @@ async function runTscBatchModelPath(
 
           const target = findingById.get(mf.diagnostic_id);
           if (target) {
-            // P0-2: Overlay — only enhance allowed fields
             if (!seenOverlayIds.has(mf.diagnostic_id)) {
               seenOverlayIds.add(mf.diagnostic_id);
               enhancementsApplied++;
             }
-            // Apply enhancement fields only
             if (mf.kind) target.kind = mf.kind;
             if (mf.message) target.message = mf.message;
             if (mf.confidence) target.confidence = mf.confidence;
-            // actionability is internal — carry through for sorting
             (target as unknown as Record<string, unknown>)._actionability = mf.actionability;
             (target as unknown as Record<string, unknown>)._model_enhanced = true;
           } else {
             unknownIds++;
-            log.warn("compress-command-output: unknown diagnostic_id from model", {
-              diagnostic_id: mf.diagnostic_id,
-            });
           }
         }
       }
       succeeded++;
     } catch (err) {
-      log.warn("compress-command-output: batch failed", {
-        batch: batch.label,
-        error: err instanceof Error ? err.message : String(err),
-      });
       failed++;
     }
   }
-
-  // Canonical findings ALWAYS preserved — model only overlays enhancements
-  // P0-2: If all batches fail, canonical findings are still complete
-  // P0-3: No semantic dedup on canonical findings
-
-  log.info("compress-command-output: batch model path done", {
-    succeeded, failed,
-    modelFindingsReceived, enhancementsApplied, unknownIds,
-    canonical: canonicalFindings.length,
-  });
 
   return {
     findings: canonicalFindings,
@@ -301,7 +539,7 @@ async function runTscBatchModelPath(
   };
 }
 
-// ── Model path: generic chunk-based (for non-tsc outputs) ─
+// ── Model path: generic chunk-based (auto path, non-tsc) ──
 
 async function runChunkModelPath(
   client: ChatClient,
@@ -319,9 +557,8 @@ async function runChunkModelPath(
 
   let succeeded = 0;
   const collected: CommandOutputFinding[] = [];
-
-  // Process chunks with limited concurrency
   const CONCURRENCY = 2;
+
   for (let i = 0; i < cappedChunks.length; i += CONCURRENCY) {
     const slice = cappedChunks.slice(i, i + CONCURRENCY);
     const promises = slice.map(async (chunk) => {
@@ -331,12 +568,9 @@ async function runChunkModelPath(
         const jsonStr = extractJsonFromResponse(raw);
         const parsed = JSON.parse(jsonStr);
 
-        // Handle both new array format and legacy single-object format
-        if (parsed && parsed.findings && Array.isArray(parsed.findings)) {
+        if (parsed?.findings && Array.isArray(parsed.findings)) {
           for (const f of parsed.findings) {
-            if (f.kind && f.kind !== "info") {
-              collected.push(f as CommandOutputFinding);
-            }
+            if (f.kind && f.kind !== "info") collected.push(f as CommandOutputFinding);
           }
         } else if (parsed && typeof parsed === "object" && parsed.kind && parsed.kind !== "info") {
           collected.push(parsed as CommandOutputFinding);
@@ -352,13 +586,7 @@ async function runChunkModelPath(
     await Promise.allSettled(promises);
   }
 
-  if (collected.length === 0) {
-    if (succeeded === 0) {
-      log.warn("compress-command-output: all chunks failed, using fallback entirely");
-    }
-    return null;
-  }
-
+  if (collected.length === 0) return null;
   return { findings: deduplicateCommandFindings(collected) };
 }
 
@@ -374,9 +602,6 @@ interface DerivedFields {
   discarded_or_low_confidence: string[];
 }
 
-/**
- * Quick source kind classification from file path (no dependency on diagnostics module).
- */
 function classifySourceKindFromFile(filePath: string | undefined): string {
   if (!filePath) return "unknown";
   const normalized = filePath.replace(/\\/g, "/");
@@ -395,7 +620,6 @@ function deriveFromFindings(
   outputLength: number,
   maxChars: number,
 ): DerivedFields {
-  // first_failure: first error by first_seen_index (original order)
   const sortedByIndex = [...findings].sort(
     (a, b) => (a.first_seen_index ?? 0) - (b.first_seen_index ?? 0),
   );
@@ -403,7 +627,6 @@ function deriveFromFindings(
     f.kind !== "warning" && f.kind !== "info",
   );
 
-  // primary_actionable_failure: most actionable project error
   const sourceKindPriority: Record<string, number> = {
     project: 0, test: 1, generated: 2, dependency: 3, unknown: 4,
   };
@@ -416,8 +639,6 @@ function deriveFromFindings(
       return (a.first_seen_index ?? 0) - (b.first_seen_index ?? 0);
     })[0];
 
-  // repeated_errors: group by error_code + normalized message (not file/line)
-  // P0-3: semantic grouping only for repeated_errors, NOT deleting canonical findings
   const patternMap = new Map<string, { count: number; examples: string[] }>();
   for (const f of findings) {
     const normKey = `${f.error_code ?? ""}:${f.message.toLowerCase().trim()}`;
@@ -437,9 +658,8 @@ function deriveFromFindings(
   const repeated_errors: DerivedFields["repeated_errors"] = [];
   for (const [, info] of patternMap) {
     if (info.count > 1) {
-      const firstExample = info.examples[0] ?? "";
       repeated_errors.push({
-        message: firstExample.slice(0, 200),
+        message: info.examples[0]!.slice(0, 200),
         count: info.count,
         examples: info.examples,
       });
@@ -447,7 +667,6 @@ function deriveFromFindings(
   }
   repeated_errors.sort((a, b) => b.count - a.count);
 
-  // suggested_source_checks: top 5 by source kind (project before generated)
   const seenFiles = new Set<string>();
   const suggested_source_checks: string[] = [];
   const sortedForChecks = [...findings].sort((a, b) => {
@@ -463,19 +682,16 @@ function deriveFromFindings(
     }
   }
 
-  // suggested_next_commands
   const suggested_next_commands: string[] = [];
   if (outputKind === "tsc_error") suggested_next_commands.push("npx tsc --noEmit");
   if (outputKind === "test_output") suggested_next_commands.push("Run the specific failing test file with verbose output");
   if (outputKind === "eslint_output") suggested_next_commands.push("npx eslint <files>");
 
-  // discarded_or_low_confidence
   const discarded: string[] = [];
   if (outputLength > maxChars) {
     discarded.push(`Output truncated from ${outputLength} to ${maxChars} chars`);
   }
 
-  // summary: distinguish diagnostics parsed, findings retained, repeated patterns
   const errorCount = findings.filter(f => f.kind !== "warning" && f.kind !== "info").length;
   const commandLabel = command ? `Command \`${command}\` ` : "";
   const exitLabel = exitCode !== undefined ? ` (exit code: ${exitCode})` : "";
@@ -488,12 +704,8 @@ function deriveFromFindings(
     (primaryActionable ? `Primary actionable: ${primaryActionable.file}:${primaryActionable.line}.` : "");
 
   return {
-    summary,
-    first_failure: firstFailure,
-    primary_actionable_failure: primaryActionable,
-    repeated_errors,
-    suggested_source_checks,
-    suggested_next_commands,
+    summary, first_failure: firstFailure, primary_actionable_failure: primaryActionable,
+    repeated_errors, suggested_source_checks, suggested_next_commands,
     discarded_or_low_confidence: discarded,
   };
 }

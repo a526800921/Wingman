@@ -297,12 +297,15 @@ async function modelReview(
   // Attach _meta before schema validation (model prompt does not include _meta)
   const outputWithMeta = {
     ...(parsed as Record<string, unknown>),
+    analysis_status: inputTruncated ? "partial" : "complete",
     is_authoritative: false,
     _meta: {
       provider,
       model: config.modelName,
       input_truncated: inputTruncated,
       fallback_used: false,
+      analysis_status: inputTruncated ? "partial" : "complete",
+      model_attempted: true,
     },
   };
 
@@ -339,12 +342,16 @@ function heuristicReview(
 
   const outputData = {
     ...fallbackResult,
+    analysis_status: "partial" as const,
     _meta: {
       provider,
       model: "heuristic",
       tokens_used: 0,
       input_truncated: inputTruncated,
       fallback_used: true,
+      analysis_status: "partial" as const,
+      model_attempted: false,
+      model_skip_reason: "model_not_configured",
     },
   };
 

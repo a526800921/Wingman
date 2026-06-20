@@ -159,6 +159,7 @@ async function tryModelCompression(
       return null;
     }
 
+    (parsed as Record<string, unknown>).analysis_status = "complete";
     (parsed as Record<string, unknown>).is_authoritative = false;
     (parsed as Record<string, unknown>)._meta = {
       provider,
@@ -166,6 +167,8 @@ async function tryModelCompression(
       tokens_used: 0,
       input_truncated: text.length < data.text.length,
       fallback_used: false,
+      analysis_status: "complete" as const,
+      model_attempted: true,
     };
 
     // Validate the combined output against the full CompressTextOutput schema
@@ -217,12 +220,16 @@ function buildFallbackResult(
   // Assemble the full output: fallback payload + _meta
   const outputData = {
     ...fallbackResult,
+    analysis_status: "partial" as const,
     _meta: {
       provider,
       model: "heuristic",
       tokens_used: 0,
       input_truncated: inputTruncated,
       fallback_used: true,
+      analysis_status: "partial" as const,
+      model_attempted: false,
+      model_skip_reason: "model_not_configured",
     },
   };
 

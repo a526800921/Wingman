@@ -231,6 +231,7 @@ async function tryModelSummarization(
     // Step 5f: attach _meta + force is_authoritative (model prompt does not include _meta)
     const outputWithMeta = {
       ...(parsed as Record<string, unknown>),
+      analysis_status: inputTruncated ? "partial" : "complete",
       is_authoritative: false,
       _meta: {
         provider,
@@ -318,18 +319,23 @@ function buildFallbackResult(
       ],
       must_verify_in_source: true,
       is_authoritative: false,
+      analysis_status: "partial" as const,
       _meta: {
         provider,
         model: "heuristic",
         tokens_used: 0,
         input_truncated: inputTruncated,
         fallback_used: true,
+        analysis_status: "partial" as const,
+        model_attempted: false,
+        model_skip_reason: "model_not_configured",
       },
     };
   }
 
   return {
     summary: fallbackData.summary,
+    analysis_status: "partial" as const,
     file_kind: fallbackData.file_kind,
     important_symbols: fallbackData.important_symbols.map((s) => ({
       name: s.name,
