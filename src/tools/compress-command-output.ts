@@ -6,7 +6,6 @@ import {
   validateInput,
   validateOutput,
   ModelCommandOutputResponseSchema,
-  ModelFirstResponseSchema,
   type ModelFirstFinding,
   type CompressCommandOutputInput,
   type CompressCommandOutputOutput,
@@ -19,6 +18,10 @@ import {
   buildModelFirstUserMessage,
   extractJsonFromResponse,
 } from "../prompts.js";
+import {
+  decodeModelFirstResponse,
+  type ModelResponseStatus,
+} from "../decoding/command-output-decoder.js";
 import {
   compressCommandOutputFallback,
   type CommandOutputFinding,
@@ -102,6 +105,24 @@ function modelFindingToOutput(f: ModelFirstFinding, verdict: EvidenceVerdict): C
   } as CommandOutputFinding & { _model_verified: string };
 }
 
+/** Extended finding with internal-only fields added by model-first path. */
+type InternalFinding = CommandOutputFinding & { _model_verified?: string };
+
+/** Strip internal-only fields (_diagnostic_id, _model_verified) before placing a finding into public output positions. */
+function stripInternalFields(f: InternalFinding | undefined): CommandOutputFinding | undefined {
+  if (!f) return undefined;
+  const { _diagnostic_id, _model_verified, ...clean } = f;
+  return clean as CommandOutputFinding;
+}
+
+/** Strip internal fields from every finding in an array. */
+function stripInternalFieldsFromArray(findings: InternalFinding[]): CommandOutputFinding[] {
+  return findings.map(f => {
+    const { _diagnostic_id, _model_verified, ...clean } = f;
+    return clean as CommandOutputFinding;
+  });
+}
+
 // ── Main handler ───────────────────────────────────────────
 
 export async function handleCompressCommandOutput(
@@ -178,36 +199,109 @@ async function modelFirstPath(
   let reportedTotals: CompressCommandOutputOutput["reported_totals"];
   let uncertainties: string[] = [];
   let batchesSent = 1;
-  let batchesSucceeded = 1;
+  let batchesSucceeded = 0;
   let batchesFailed = 0;
+  let modelFindingsReceived = 0;
+  let modelFindingsRejected = 0;
+  let modelResponseStatus: ModelResponseStatus = "transport_failure";
+  let modelFailureReason: string | undefined;
+  let modelCallAttempts = 0;
 
   if (output.length <= SINGLE_CALL_CHAR_BUDGET) {
-    // Small input: single model call
+    // ── Small input: single model call ────────────────────
+    modelCallAttempts = 1;
+
     try {
       const raw = await client.chat(systemPrompt, userMsg);
-      const jsonStr = extractJsonFromResponse(raw);
-      const parsed = JSON.parse(jsonStr);
-      const validated = ModelFirstResponseSchema.safeParse(parsed);
-      if (validated.success) {
-        modelFindings = validated.data.findings;
-        modelDetectedKind = validated.data.detected_kind;
-        modelSummary = validated.data.summary;
-        reportedTotals = validated.data.reported_totals;
-        uncertainties = validated.data.uncertainties ?? [];
+      const decoded = decodeModelFirstResponse(raw);
+
+      modelResponseStatus = decoded.status;
+      modelDetectedKind = decoded.detected_kind;
+      modelSummary = decoded.summary;
+      reportedTotals = decoded.reported_totals as CompressCommandOutputOutput["reported_totals"];
+      uncertainties = decoded.uncertainties ?? [];
+
+      if (decoded.status === "valid" || decoded.status === "partial_valid") {
+        batchesSucceeded = 1;
+        modelFindings = decoded.accepted_findings;
+        modelFindingsReceived = decoded.accepted_findings.length + decoded.rejected_issues.length;
+        modelFindingsRejected = decoded.rejected_issues.length;
+      } else if (decoded.status === "empty") {
+        batchesSucceeded = 1;
+        modelFindings = [];
+        modelFindingsReceived = 0;
+      } else {
+        // parse_failure or schema_failure
+        batchesFailed = 1;
+        modelFailureReason = decoded.status === "parse_failure"
+          ? "model response JSON parse failed"
+          : "model response schema validation failed (envelope)";
+        log.warn("compress-command-output: model-first decode failed", {
+          status: decoded.status,
+        });
       }
     } catch (err) {
-      batchesSucceeded = 0;
       batchesFailed = 1;
+      modelResponseStatus = "transport_failure";
+      modelFailureReason = `model HTTP call failed: ${err instanceof Error ? err.message : String(err)}`;
       log.warn("compress-command-output: model-first call failed", {
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+
+    // ── Non-zero exit recovery: 1 repair call ────────────
+    if (
+      exitCode !== undefined &&
+      exitCode !== 0 &&
+      batchesFailed > 0 &&
+      batchesSucceeded === 0
+    ) {
+      log.info("compress-command-output: attempting repair call for non-zero exit");
+      modelCallAttempts = 2;
+
+      const repairSystemPrompt = buildModelFirstSystemPrompt() +
+        "\n\nIMPORTANT: Your previous response was not valid JSON or did not match the required schema. " +
+        "Ensure your response is valid JSON that strictly follows the OUTPUT SCHEMA. " +
+        "Do NOT use null for optional fields — omit them entirely. " +
+        "Do NOT add extra fields beyond the schema.";
+
+      try {
+        const repairRaw = await client.chat(repairSystemPrompt, userMsg);
+        const repairDecoded = decodeModelFirstResponse(repairRaw);
+
+        modelResponseStatus = repairDecoded.status;
+        modelDetectedKind = repairDecoded.detected_kind ?? modelDetectedKind;
+        modelSummary = repairDecoded.summary ?? modelSummary;
+        reportedTotals = (repairDecoded.reported_totals as CompressCommandOutputOutput["reported_totals"]) ?? reportedTotals;
+        uncertainties = repairDecoded.uncertainties ?? uncertainties;
+
+        if (repairDecoded.status === "valid" || repairDecoded.status === "partial_valid") {
+          batchesSucceeded = 1;
+          batchesFailed = 0;
+          modelFindings = repairDecoded.accepted_findings;
+          modelFindingsReceived = repairDecoded.accepted_findings.length + repairDecoded.rejected_issues.length;
+          modelFindingsRejected = repairDecoded.rejected_issues.length;
+          modelFailureReason = undefined;
+        } else if (repairDecoded.status === "empty") {
+          batchesSucceeded = 1;
+          batchesFailed = 0;
+          modelFindings = [];
+          modelFindingsReceived = 0;
+          modelFailureReason = undefined;
+        }
+        // else: repair also failed — keep original failure state
+      } catch (err) {
+        log.warn("compress-command-output: repair call also failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   } else {
     // Large input: chunk by generic boundaries, then batch
     return await autoPath(client, provider, modelName, output, command, exitCode, focus, detectorHint, inputTruncated, output.length, log);
   }
 
-  // Evidence verification
+  // ── Evidence verification ──────────────────────────────
   let verifiedCount = 0;
   let partialCount = 0;
   let unverifiedCount = 0;
@@ -226,22 +320,7 @@ async function modelFirstPath(
       findings.push({ ...finding, confidence: "medium" });
     } else {
       unverifiedCount++;
-      // Still include but mark low confidence
       findings.push({ ...finding, confidence: "low" });
-    }
-  }
-
-  // Non-zero exit + no verified findings → incomplete
-  let analysisStatus: CompressCommandOutputOutput["analysis_status"] = "complete";
-  const discarded: string[] = [];
-
-  if (exitCode !== undefined && exitCode !== 0 && verifiedCount === 0) {
-    analysisStatus = batchesFailed > 0 ? "incomplete" : "partial";
-    if (batchesFailed > 0) {
-      discarded.push("Model analysis failed — results may be incomplete");
-    }
-    if (verifiedCount === 0 && modelFindings.length === 0) {
-      discarded.push("Command exited with non-zero code but no verified findings could be extracted");
     }
   }
 
@@ -253,6 +332,81 @@ async function modelFirstPath(
     seenIds.add(id);
     return true;
   });
+
+  // ── Non-zero exit + no verified findings → incomplete or fallback ──
+  let analysisStatus: CompressCommandOutputOutput["analysis_status"] = "complete";
+  const discarded: string[] = [];
+  let fallbackUsed = false;
+
+  if (exitCode !== undefined && exitCode !== 0 && verifiedCount === 0) {
+    if (batchesFailed > 0 && batchesSucceeded === 0) {
+      // Total model failure — try deterministic fallback for known formats
+      analysisStatus = "incomplete";
+      discarded.push("Model analysis failed — results may be incomplete");
+
+      if (detectorHint === "tsc_error") {
+        log.info("compress-command-output: model failed, using tsc fallback for non-zero exit");
+        const fb = compressCommandOutputFallback(command, output, exitCode, output.length);
+        const fbDerived = deriveFromFindings(fb.findings, command, exitCode, detectorHint, output.length, output.length);
+
+        fb.findings.forEach(f => { f.evidence = sanitizeEvidence(f.evidence); });
+
+        const fbOutputData: CompressCommandOutputOutput = {
+          summary: fbDerived.summary,
+          analysis_status: fb.findings.length > 0 ? "partial" : "incomplete",
+          first_failure: stripInternalFields(fbDerived.first_failure),
+          primary_actionable_failure: stripInternalFields(fbDerived.primary_actionable_failure),
+          findings: stripInternalFieldsFromArray(fb.findings),
+          repeated_errors: fbDerived.repeated_errors,
+          suggested_source_checks: fbDerived.suggested_source_checks,
+          suggested_next_commands: fbDerived.suggested_next_commands,
+          discarded_or_low_confidence: [...fbDerived.discarded_or_low_confidence, ...discarded],
+          is_authoritative: false,
+          _meta: {
+            provider,
+            model: modelName,
+            input_truncated: inputTruncated,
+            fallback_used: true,
+            chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "model-first-fallback" },
+            analysis_status: fb.findings.length > 0 ? "partial" : "incomplete",
+            model_attempted: true,
+            model_skip_reason: undefined,
+            model_failure_reason: modelFailureReason,
+            model_response_status: modelResponseStatus,
+            model_call_attempts: modelCallAttempts,
+            model_findings_received: modelFindingsReceived,
+            model_findings_rejected: modelFindingsRejected,
+            findings_retained: fb.findings.length,
+            verified_findings: fb.findings.length,
+            partial_findings: 0,
+            unverified_findings: 0,
+            batches_sent: batchesSent,
+            batches_succeeded: batchesSucceeded,
+            batches_failed: batchesFailed,
+            detector_hint: detectorHint,
+            model_detected_kind: modelDetectedKind,
+            kind_mismatch: modelDetectedKind ? modelDetectedKind !== detectorHint : false,
+          } as CompressCommandOutputOutput["_meta"],
+        };
+
+        const fbValidation = validateOutput("aux_compress_command_output", fbOutputData);
+        if (fbValidation.ok) {
+          return { content: [{ type: "text", text: JSON.stringify(fbValidation.data) }], isError: false };
+        }
+      }
+
+      // Unknown format, no fallback — return incomplete
+      discarded.push("Command exited with non-zero code but model analysis failed and no fallback available");
+    } else if (modelFindings.length === 0) {
+      // Model succeeded but found nothing on non-zero exit — incomplete
+      analysisStatus = "incomplete";
+      discarded.push("Command exited with non-zero code but analysis found no issues");
+    } else {
+      // Model found things but none verified — partial
+      analysisStatus = "partial";
+      discarded.push("Command exited with non-zero code, findings present but evidence could not be fully verified");
+    }
+  }
 
   // Derive from model findings
   const derived = deriveFromFindings(dedupedFindings, command, exitCode, detectorHint, output.length, output.length);
@@ -266,9 +420,9 @@ async function modelFirstPath(
   const outputData: CompressCommandOutputOutput = {
     summary,
     analysis_status: analysisStatus,
-    first_failure: derived.first_failure,
-    primary_actionable_failure: derived.primary_actionable_failure,
-    findings: dedupedFindings.map(({ _diagnostic_id, ...rest }) => rest),
+    first_failure: stripInternalFields(derived.first_failure),
+    primary_actionable_failure: stripInternalFields(derived.primary_actionable_failure),
+    findings: stripInternalFieldsFromArray(dedupedFindings),
     repeated_errors: derived.repeated_errors,
     suggested_source_checks: derived.suggested_source_checks,
     suggested_next_commands: derived.suggested_next_commands,
@@ -280,12 +434,18 @@ async function modelFirstPath(
       provider,
       model: modelName,
       input_truncated: inputTruncated,
-      fallback_used: false,
+      fallback_used: fallbackUsed,
       chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "model-first" },
       analysis_status: analysisStatus,
       model_attempted: true,
       model_skip_reason: undefined,
-      model_failure_reason: batchesFailed > 0 ? "model call failed" : undefined,
+      model_failure_reason: modelFailureReason,
+      // P0: unified reliability semantics — new fields
+      model_response_status: modelResponseStatus,
+      model_call_attempts: modelCallAttempts,
+      model_findings_received: modelFindingsReceived,
+      model_findings_rejected: modelFindingsRejected,
+      // Canonical counts
       findings_retained: dedupedFindings.length,
       verified_findings: verifiedCount,
       partial_findings: partialCount,
@@ -293,7 +453,6 @@ async function modelFirstPath(
       batches_sent: batchesSent,
       batches_succeeded: batchesSucceeded,
       batches_failed: batchesFailed,
-      model_findings_received: modelFindings.length,
       detector_hint: detectorHint,
       model_detected_kind: modelDetectedKind,
       kind_mismatch: kindMismatch,
@@ -302,7 +461,9 @@ async function modelFirstPath(
 
   const outValidation = validateOutput("aux_compress_command_output", outputData);
   if (!outValidation.ok) {
-    log.warn("compress-command-output: model-first output validation failed, using fallback");
+    log.warn("compress-command-output: model-first output validation failed, using fallback", {
+      error: outValidation.error,
+    });
     return fallbackOnlyResult(provider, output, inputTruncated, command, exitCode, detectorHint);
   }
 
@@ -353,7 +514,7 @@ async function autoPath(
     }
   }
 
-  const outputFindings = canonicalFindings.map(({ _diagnostic_id, ...rest }) => rest);
+  const outputFindings = stripInternalFieldsFromArray(canonicalFindings);
   const derived = deriveFromFindings(canonicalFindings, command, exitCode, detectorHint, output.length, maxChars);
 
   const { meta } = chunkCommandOutput(output, maxChars);
@@ -367,8 +528,8 @@ async function autoPath(
   const outputData: CompressCommandOutputOutput = {
     summary: derived.summary,
     analysis_status: analysisStatus,
-    first_failure: derived.first_failure,
-    primary_actionable_failure: derived.primary_actionable_failure,
+    first_failure: stripInternalFields(derived.first_failure),
+    primary_actionable_failure: stripInternalFields(derived.primary_actionable_failure),
     findings: outputFindings,
     repeated_errors: derived.repeated_errors,
     suggested_source_checks: derived.suggested_source_checks,
@@ -416,9 +577,9 @@ function fallbackOnlyResult(
   const outputData: CompressCommandOutputOutput = {
     summary: derived.summary,
     analysis_status: analysisStatus,
-    first_failure: derived.first_failure,
-    primary_actionable_failure: derived.primary_actionable_failure,
-    findings: fb.findings.map(({ _diagnostic_id, ...rest }) => rest),
+    first_failure: stripInternalFields(derived.first_failure),
+    primary_actionable_failure: stripInternalFields(derived.primary_actionable_failure),
+    findings: stripInternalFieldsFromArray(fb.findings),
     repeated_errors: derived.repeated_errors,
     suggested_source_checks: derived.suggested_source_checks,
     suggested_next_commands: derived.suggested_next_commands,

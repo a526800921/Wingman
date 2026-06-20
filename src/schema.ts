@@ -360,6 +360,9 @@ export const CompressCommandOutputOutput = authoritativeMarker.merge(
       model_attempted: z.boolean().optional(),
       model_skip_reason: z.string().optional(),
       model_failure_reason: z.string().optional(),
+      // P0: response contract recovery
+      model_response_status: z.string().optional(),
+      model_call_attempts: z.number().int().nonnegative().optional(),
       // Canonical counts
       diagnostics_parsed: z.number().int().nonnegative().optional(),
       findings_retained: z.number().int().nonnegative().optional(),
@@ -373,6 +376,7 @@ export const CompressCommandOutputOutput = authoritativeMarker.merge(
       batches_failed: z.number().int().nonnegative().optional(),
       batches_omitted_by_budget: z.number().int().nonnegative().optional(),
       model_findings_received: z.number().int().nonnegative().optional(),
+      model_findings_rejected: z.number().int().nonnegative().optional(),
       model_enhancements_applied: z.number().int().nonnegative().optional(),
       unknown_diagnostic_ids: z.number().int().nonnegative().optional(),
       // Model-first specific

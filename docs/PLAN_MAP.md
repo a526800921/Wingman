@@ -24,7 +24,8 @@ ADR-0001 模型优先
   ├─ Command Output 模型优先（专项设计）
   │   ├─ Phase 2 diagnostic 修复
   │   ├─ overlay 回归修复
-  │   └─ payload / 单批优化
+  │   ├─ payload / 单批优化
+  │   └─ Round 4 模型响应契约恢复
   ├─ 前置验证方案
   │   └─ P0 fixtures / 契约 / 调用预算
   └─ Model-first 输出 schema migration
@@ -33,14 +34,15 @@ ADR-0001 模型优先
 ## 推荐实施顺序
 
 ```text
-1. 先写失败 fixture / expectation
-2. 统一 analysis status 与 migration 语义
-3. 完善共享 model-runtime 和 mock model 测试
-4. 修复 review 工具路径、证据和 fallback 语义
-5. 迁移 summarize_file 大输入与 fallback
-6. 迁移 compress_text 大输入与 fallback
-7. 收缩旧 heuristic 语义代码
-8. 运行真实模型评测与发布前回放
+1. 先写 Round 4 失败 fixture 和模型响应契约测试
+2. 修复 command-output 响应分层校验、失败记账和非零退出恢复
+3. 统一 analysis status 与 migration 语义
+4. 完善共享 model-runtime 和 mock model 测试
+5. 修复 review 工具路径、证据和 fallback 语义
+6. 迁移 summarize_file 大输入与 fallback
+7. 迁移 compress_text 大输入与 fallback
+8. 收缩旧 heuristic 语义代码
+9. 运行真实模型评测与发布前回放
 ```
 
 任何步骤不得跳过对应施工计划中的 Step 0 红灯测试。
@@ -55,6 +57,7 @@ ADR-0001 模型优先
 | `docs/phase2-tools-fix-plan.md` | 施工/设计混合 | 大部分完成 | 早期 diagnostic 与 batch 方案；后续细节由回归/payload 计划覆盖 |
 | `docs/chunk-optimization-regression-fix-plan.md` | 施工计划 | 大部分完成 | 覆盖 replacement → overlay、canonical findings |
 | `docs/command-output-model-payload-plan.md` | 施工计划 | 部分完成 | 覆盖紧凑 payload、单批和 enrichment |
+| `docs/plans/command-output-response-contract-recovery.md` | 施工计划 | **已完成** (2026-06-20) | Round 4 阻断回归；优先于 command-output 后续优化与 parser 收缩 |
 | `docs/phase2-tools-validation-plan.md` | 验证战略 | Active | P0 已拆到 `phase2-validation-p0-plan.md` |
 | `docs/phase2-validation-p0-plan.md` | 施工计划 | 已建立基础 | fixtures、expectations、契约和预算测试已存在 |
 | `docs/plans/summarize-file-model-first.md` | 施工计划 | 待实施 | 依赖 shared runtime、migration note |
