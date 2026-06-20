@@ -23,13 +23,13 @@ export interface FallbackCompressResult {
 // Keyword categories (case-insensitive, whole-word matching)
 // ---------------------------------------------------------------------------
 
-const ERROR_KEYWORDS = [
+export const ERROR_KEYWORDS = [
   "error", "fail", "fatal", "critical", "exception", "timeout",
   "denied", "refused", "crash", "panic", "abort", "violation",
   "invalid", "unauthorized", "forbidden", "missing", "cannot", "unable",
 ] as const;
 
-const WARN_KEYWORDS = [
+export const WARN_KEYWORDS = [
   "warn", "warning", "deprecated", "obsolete",
 ] as const;
 
@@ -77,7 +77,7 @@ interface ScoredLine {
  * Assign an importance score to a single line.
  * Error/critical = 3, warning = 2, success/completion = 1, no match = 0.
  */
-function scoreLine(line: string): number {
+export function scoreLine(line: string): number {
   if (ERROR_RE.test(line)) return 3;
   if (WARN_RE.test(line)) return 2;
   if (SUCCESS_RE.test(line)) return 1;
@@ -96,7 +96,7 @@ function countMatches(text: string, re: RegExp): number {
 }
 
 /** Collect unique matches of `re` in `text`. */
-function collectMatches(text: string, re: RegExp): string[] {
+export function collectMatches(text: string, re: RegExp): string[] {
   const r = new RegExp(re.source, re.flags);
   const seen = new Set<string>();
   let m: RegExpExecArray | null;

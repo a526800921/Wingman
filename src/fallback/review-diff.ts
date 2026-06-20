@@ -48,7 +48,7 @@ export interface FallbackReviewResult {
 
 const DEFAULT_MAX_CHARS = 60_000;
 
-const BINARY_EXTENSIONS = new Set([
+export const BINARY_EXTENSIONS = new Set([
   ".png",
   ".jpg",
   ".jpeg",
@@ -89,7 +89,7 @@ const BINARY_EXTENSIONS = new Set([
 // ---------------------------------------------------------------------------
 
 /** Check whether a file path looks like a binary asset. */
-function isBinaryFile(filePath: string): boolean {
+export function isBinaryFile(filePath: string): boolean {
   const lower = filePath.toLowerCase();
   for (const ext of BINARY_EXTENSIONS) {
     if (lower.endsWith(ext)) return true;
@@ -116,7 +116,7 @@ function maxConsecutiveAddedLines(addedLines: string[]): number {
  * Split the diff into per-hunk segments so we can attribute findings to
  * approximate locations.
  */
-interface HunkInfo {
+export interface HunkInfo {
   oldStart: number;
   oldCount: number;
   newStart: number;
@@ -124,7 +124,7 @@ interface HunkInfo {
   content: string;
 }
 
-function parseHunks(diff: string): HunkInfo[] {
+export function parseHunks(diff: string): HunkInfo[] {
   const hunkRegex = /^@@\s+-(\d+),?(\d*)\s+\+(\d+),?(\d*)\s+@@/gm;
   const matches: Array<{ start: number; end: number; m: RegExpExecArray }> = [];
   let match: RegExpExecArray | null;
@@ -147,7 +147,7 @@ function parseHunks(diff: string): HunkInfo[] {
 }
 
 /** Map a hunk index to a human-readable location string. */
-function hunkLocation(hunk: HunkInfo, idx: number): string {
+export function hunkLocation(hunk: HunkInfo, idx: number): string {
   return `hunk #${idx + 1} (line ~${hunk.newStart})`;
 }
 
