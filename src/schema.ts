@@ -263,16 +263,71 @@ export const ReviewDiffByFileOutput = authoritativeMarker.merge(
 export type ReviewDiffByFileOutput = z.infer<typeof ReviewDiffByFileOutput>;
 
 // ---------------------------------------------------------------------------
+// aux_compress_command_output 专用类型
+// ---------------------------------------------------------------------------
+
+export const CommandOutputFindingSchema = z.strictObject({
+  kind: z.enum(["test_failure", "type_error", "lint_error", "build_error", "runtime_exception", "warning", "info", "unknown"]),
+  message: z.string(),
+  error_code: z.string().optional(),
+  rule_id: z.string().optional(),
+  file: z.string().optional(),
+  line: z.number().int().nonnegative().optional(),
+  column: z.number().int().nonnegative().optional(),
+  evidence: z.string(),
+  confidence: ConfidenceSchema,
+  first_seen_index: z.number().int().nonnegative().optional(),
+});
+export type CommandOutputFindingZod = z.infer<typeof CommandOutputFindingSchema>;
+
+export const RepeatedErrorSchema = z.strictObject({
+  message: z.string(),
+  count: z.number().int().positive(),
+  examples: z.array(z.string()),
+});
+
+export const CompressCommandOutputInput = z.strictObject({
+  command: z.string().optional(),
+  output: z.string().min(1),
+  exit_code: z.number().int().optional(),
+  focus: z.string().optional(),
+  max_chars: z.number().int().min(1).max(300_000).default(120_000).optional(),
+});
+export type CompressCommandOutputInput = z.infer<typeof CompressCommandOutputInput>;
+
+export const CompressCommandOutputOutput = authoritativeMarker.merge(
+  z.strictObject({
+    summary: z.string(),
+    first_failure: CommandOutputFindingSchema.optional(),
+    findings: z.array(CommandOutputFindingSchema),
+    repeated_errors: z.array(RepeatedErrorSchema),
+    suggested_source_checks: z.array(z.string()),
+    suggested_next_commands: z.array(z.string()),
+    discarded_or_low_confidence: z.array(z.string()),
+    _meta: z.strictObject({
+      provider: z.string().optional(),
+      model: z.string(),
+      tokens_used: z.number().int().nonnegative().optional(),
+      input_truncated: z.boolean(),
+      fallback_used: z.boolean(),
+      chunking: ChunkMetaSchema,
+    }),
+  }),
+);
+export type CompressCommandOutputOutput = z.infer<typeof CompressCommandOutputOutput>;
+
+// ---------------------------------------------------------------------------
 // 输入 / 输出 schema 注册表（供 validateInput / validateOutput 使用）
 // ---------------------------------------------------------------------------
 
-type ToolName = "aux_summarize_file" | "aux_compress_text" | "aux_review_diff" | "aux_review_diff_by_file";
+type ToolName = "aux_summarize_file" | "aux_compress_text" | "aux_review_diff" | "aux_review_diff_by_file" | "aux_compress_command_output";
 
 const inputSchemas: Record<ToolName, z.ZodTypeAny> = {
   aux_summarize_file: SummarizeFileInput,
   aux_compress_text: CompressTextInput,
   aux_review_diff: ReviewDiffInput,
   aux_review_diff_by_file: ReviewDiffByFileInput,
+  aux_compress_command_output: CompressCommandOutputInput,
 };
 
 const outputSchemas: Record<ToolName, z.ZodTypeAny> = {
@@ -280,6 +335,7 @@ const outputSchemas: Record<ToolName, z.ZodTypeAny> = {
   aux_compress_text: CompressTextOutput,
   aux_review_diff: ReviewDiffOutput,
   aux_review_diff_by_file: ReviewDiffByFileOutput,
+  aux_compress_command_output: CompressCommandOutputOutput,
 };
 
 // ---------------------------------------------------------------------------

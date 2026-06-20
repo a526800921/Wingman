@@ -18,6 +18,7 @@ import { handleSummarizeFile } from "./tools/summarize-file.js";
 import { handleCompressText } from "./tools/compress-text.js";
 import { handleReviewDiff } from "./tools/review-diff.js";
 import { handleReviewDiffByFile } from "./tools/review-diff-by-file.js";
+import { handleCompressCommandOutput } from "./tools/compress-command-output.js";
 
 const SERVER_NAME = "wingman";
 const SERVER_VERSION = "0.1.0";
@@ -329,6 +330,69 @@ const REVIEW_DIFF_BY_FILE_OUTPUT_SCHEMA = {
   required: ["overall_summary", "files", "top_risks", "is_authoritative", "_meta"],
 };
 
+const COMPRESS_COMMAND_OUTPUT_OUTPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    summary: { type: "string" },
+    first_failure: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["test_failure", "type_error", "lint_error", "build_error", "runtime_exception", "warning", "info", "unknown"] },
+        message: { type: "string" },
+        error_code: { type: "string" },
+        rule_id: { type: "string" },
+        file: { type: "string" },
+        line: { type: "integer" },
+        column: { type: "integer" },
+        evidence: { type: "string" },
+        confidence: { type: "string", enum: ["low", "medium", "high"] },
+        first_seen_index: { type: "integer" },
+      },
+    },
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["test_failure", "type_error", "lint_error", "build_error", "runtime_exception", "warning", "info", "unknown"] },
+          message: { type: "string" },
+          error_code: { type: "string" },
+          rule_id: { type: "string" },
+          file: { type: "string" },
+          line: { type: "integer" },
+          column: { type: "integer" },
+          evidence: { type: "string" },
+          confidence: { type: "string", enum: ["low", "medium", "high"] },
+          first_seen_index: { type: "integer" },
+        },
+      },
+    },
+    repeated_errors: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { message: { type: "string" }, count: { type: "integer" }, examples: { type: "array", items: { type: "string" } } },
+      },
+    },
+    suggested_source_checks: { type: "array", items: { type: "string" } },
+    suggested_next_commands: { type: "array", items: { type: "string" } },
+    discarded_or_low_confidence: { type: "array", items: { type: "string" } },
+    is_authoritative: { type: "boolean", const: false },
+    _meta: {
+      type: "object",
+      properties: {
+        provider: { type: "string" },
+        model: { type: "string" },
+        tokens_used: { type: "integer" },
+        input_truncated: { type: "boolean" },
+        fallback_used: { type: "boolean" },
+        chunking: { type: "object" },
+      },
+    },
+  },
+  required: ["summary", "findings", "is_authoritative", "_meta"],
+};
+
 const REVIEW_DIFF_BY_FILE_TOOL_DEFINITION = {
   name: "aux_review_diff_by_file",
   description:
@@ -351,6 +415,29 @@ const REVIEW_DIFF_BY_FILE_TOOL_DEFINITION = {
   outputSchema: REVIEW_DIFF_BY_FILE_OUTPUT_SCHEMA,
 };
 
+const COMPRESS_COMMAND_OUTPUT_TOOL_DEFINITION = {
+  name: "aux_compress_command_output",
+  description:
+    "把命令输出（tsc/eslint/test/build/stack trace）压缩成结构化 findings。提取首个失败点、文件路径、行号、错误码，归并重复错误。结果是辅助性、非权威的——Claude Code 在决策前必须回查原文。",
+  annotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      command: { type: "string", description: "可选，原始命令（如 'npm test'）。" },
+      output: { type: "string", description: "命令的标准输出/标准错误文本。" },
+      exit_code: { type: "integer", description: "可选，命令退出码。" },
+      focus: { type: "string", description: "可选，关注点。例如 'errors only', 'first failure'。" },
+      max_chars: { type: "integer", description: "可选，处理字符上限（默认 120000，最大 300000）。" },
+    },
+    required: ["output"],
+  },
+  outputSchema: COMPRESS_COMMAND_OUTPUT_OUTPUT_SCHEMA,
+};
+
 // --- Server setup ---
 
 const server = new Server(
@@ -365,6 +452,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     COMPRESS_TEXT_TOOL_DEFINITION,
     REVIEW_DIFF_TOOL_DEFINITION,
     REVIEW_DIFF_BY_FILE_TOOL_DEFINITION,
+    COMPRESS_COMMAND_OUTPUT_TOOL_DEFINITION,
   ],
 }));
 
@@ -389,6 +477,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       break;
     case "aux_review_diff_by_file":
       result = await handleReviewDiffByFile(args ?? {}, config);
+      break;
+    case "aux_compress_command_output":
+      result = await handleCompressCommandOutput(args ?? {}, config);
       break;
     default:
       result = {
