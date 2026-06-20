@@ -60,6 +60,7 @@ async function main() {
     fallback_used?: boolean;
     analysis_status?: string;
     model_detected_kind?: string;
+    summary: string;
     duration_ms: number;
   }> = [];
 
@@ -103,6 +104,7 @@ async function main() {
         fallback_used: meta.fallback_used,
         analysis_status: meta.analysis_status,
         model_detected_kind: meta.model_detected_kind,
+        summary: typeof data.summary === "string" ? data.summary : "",
         duration_ms: elapsed,
       };
       results.push(runResult);
@@ -154,6 +156,7 @@ async function main() {
         verified: 0,
         partial: 0,
         unverified: 0,
+        summary: "",
         duration_ms: elapsed,
       });
     }
@@ -215,10 +218,10 @@ async function main() {
     {
       name: "Non-zero exit not reported as 0 errors or 'No actionable findings'",
       passed: results.every(r => {
-        // Check that summary doesn't claim 0 errors on non-zero exit
-        return true; // Verified manually through the concrete output
+        if (r.status !== "ok" || r.summary.trim().length === 0) return false;
+        return !/\b0\s+errors?\b|\b0\s+error\(s\)|no actionable findings|no (?:errors?|issues?) (?:detected|found)/i.test(r.summary);
       }),
-      detail: "verified via output inspection",
+      detail: `summaries: ${results.map(r => JSON.stringify(r.summary)).join(", ")}`,
     },
   ];
 

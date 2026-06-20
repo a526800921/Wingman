@@ -157,13 +157,12 @@ describe("handleCompressCommandOutput — model-first recovery (mocked)", () => 
     );
 
     const data = parseResult(result);
-    // Empty model response + non-zero exit + tsc_error → should fall through to coverage guard
-    // Current behavior (before fix): returns incomplete with 0 findings
-    // Expected behavior (after fix): runs deterministic fallback, returns tsc-parsed findings
     assert.equal(result.isError, false);
-    // After fix: findings from fallback should be non-zero
-    // assert.ok(data.findings.length > 0, "Coverage guard should produce findings");
-    console.log(`[empty-coverage] findings: ${data.findings.length}, status: ${data.analysis_status}, fallback: ${data._meta.fallback_used}`);
+    assert.ok(data.findings.length > 0, "Coverage guard should produce findings");
+    assert.equal(data.analysis_status, "partial");
+    assert.equal(data._meta.fallback_used, true);
+    assert.equal(data._meta.model_response_status, "empty");
+    assert.equal(data._meta.model_call_attempts, 1);
   });
 
   // ── All findings rejected → coverage guard ─────────────
@@ -195,7 +194,12 @@ describe("handleCompressCommandOutput — model-first recovery (mocked)", () => 
     );
 
     const data = parseResult(result);
-    console.log(`[all-rejected] findings: ${data.findings.length}, status: ${data.analysis_status}, response_status: ${data._meta.model_response_status}`);
+    assert.ok(data.findings.length > 0, "Coverage guard should replace fully rejected model findings");
+    assert.equal(data.analysis_status, "partial");
+    assert.equal(data._meta.fallback_used, true);
+    assert.equal(data._meta.model_response_status, "partial_valid");
+    assert.equal(data._meta.model_findings_received, 1);
+    assert.equal(data._meta.model_findings_rejected, 1);
   });
 
   // ── Partial valid → analysis_status not complete ──────
@@ -207,10 +211,9 @@ describe("handleCompressCommandOutput — model-first recovery (mocked)", () => 
         {
           finding_id: "f1",
           kind: "type_error",
-          message: "Invalid — null file",
-          file: null,
-          evidence: "some evidence",
+          message: "Invalid — missing evidence",
           confidence: "high",
+          // missing required evidence → rejected while f0 remains valid
         },
       ]),
     ]);
@@ -227,8 +230,12 @@ describe("handleCompressCommandOutput — model-first recovery (mocked)", () => 
     );
 
     const data = parseResult(result);
-    console.log(`[partial_valid] findings: ${data.findings.length}, analysis_status: ${data.analysis_status}, response_status: ${data._meta.model_response_status}, rejected: ${data._meta.model_findings_rejected}`);
-    // Expected after fix: analysis_status should be "partial" not "complete"
+    assert.equal(data.findings.length, 1);
+    assert.equal(data.analysis_status, "partial");
+    assert.equal(data._meta.model_response_status, "partial_valid");
+    assert.equal(data._meta.model_findings_received, 2);
+    assert.equal(data._meta.model_findings_rejected, 1);
+    assert.equal(data._meta.fallback_used, false);
   });
 
   // ── Parse failure → repair success ────────────────────
@@ -279,8 +286,9 @@ describe("handleCompressCommandOutput — model-first recovery (mocked)", () => 
     const data = parseResult(result);
     assert.equal(client.callCount, 2, "Should make exactly 2 calls total");
     assert.equal(data._meta.model_call_attempts, 2);
-    // Should trigger tsc fallback since detector_hint is tsc_error and exit_code != 0
-    console.log(`[parse-fail+repair-fail] findings: ${data.findings.length}, fallback: ${data._meta.fallback_used}, status: ${data.analysis_status}`);
+    assert.ok(data.findings.length > 0, "Failed repair should use the tsc coverage guard");
+    assert.equal(data._meta.fallback_used, true);
+    assert.equal(data.analysis_status, "partial");
   });
 
   // ── Schema failure → repair success ───────────────────
@@ -330,7 +338,9 @@ describe("handleCompressCommandOutput — model-first recovery (mocked)", () => 
     const data = parseResult(result);
     assert.equal(data._meta.model_response_status, "transport_failure");
     assert.equal(data._meta.model_call_attempts, 2, "Should attempt repair after transport failure");
-    console.log(`[transport-fail] findings: ${data.findings.length}, fallback: ${data._meta.fallback_used}, status: ${data.analysis_status}`);
+    assert.ok(data.findings.length > 0, "Transport failure should use the tsc coverage guard");
+    assert.equal(data._meta.fallback_used, true);
+    assert.equal(data.analysis_status, "partial");
   });
 
   // ── Repair call count limit ────────────────────────────

@@ -6,7 +6,8 @@
 - 评审提交：`9b87864 feat: command-output model response contract recovery`
 - 对应计划：`docs/plans/command-output-response-contract-recovery.md`
 - 原始报告：`E:\work\cc-music\docs\aux-model-full-test-r4.md`
-- 评审结论：**全部问题已修复 (2026-06-20)**
+- 初评结论：部分完成
+- 复评结论：**全部问题已修复（2026-06-20）**
 
 ## 1. 总体结论
 
@@ -23,9 +24,9 @@ schema_failure
 transport_failure
 ```
 
-但是恢复路径、状态语义、计数一致性和验收自动化尚未完整实现。特别是合法空结果以及全部 findings 被逐项拒绝时，仍可能在非零退出场景返回 0 findings，而不执行计划要求的 deterministic coverage guard。
+初评时，恢复路径、状态语义、计数一致性和验收自动化尚未完整实现。特别是合法空结果以及全部 findings 被逐项拒绝时，仍可能在非零退出场景返回 0 findings，而不执行计划要求的 deterministic coverage guard。
 
-因此建议将计划状态从“已完成”调整为“实施中”，补齐 handler 级测试和剩余恢复语义后再关闭。
+这些问题已在后续修复和复评中关闭；历史问题与证据保留在本文，最终状态以第 6 节为准。
 
 ## 2. 已正确完成的部分
 
@@ -244,18 +245,18 @@ P2  同步 src/index.ts、migration note、README 和计划状态
 
 ## 5. 重新完成计划的验收条件
 
-- [ ] handler 级测试覆盖首次成功、修复成功、修复失败和 transport failure。
-- [ ] 非零退出的 empty 响应会执行 coverage guard 或返回明确 incomplete。
-- [ ] 全部 findings 被拒绝时不会被当作成功分析。
-- [ ] `partial_valid` 不会返回 `analysis_status: complete`。
-- [ ] verified/partial/unverified/rejected/retained 计数来自最终 canonical 集合。
-- [ ] 非法 `reported_totals` 不会导致最终输出整体 fallback。
-- [ ] replay 任一验收失败时进程返回非零退出码。
-- [ ] Round 4 三次回放均精确保留 14 个独立 diagnostics。
-- [ ] `src/index.ts`、migration note 和 README 已同步。
-- [ ] 施工计划状态、完成项和 `PLAN_MAP.md` 一致。
-- [ ] build、专项测试、全量测试和 smoke 全部通过。
-- [ ] `gitnexus_detect_changes` 只包含预期执行流。
+- [x] handler 级测试覆盖首次成功、修复成功、修复失败和 transport failure。
+- [x] 非零退出的 empty 响应会执行 coverage guard 或返回明确 incomplete。
+- [x] 全部 findings 被拒绝时不会被当作成功分析。
+- [x] `partial_valid` 不会返回 `analysis_status: complete`。
+- [x] verified/partial/unverified/rejected/retained 计数来自最终 canonical 集合。
+- [x] 非法 `reported_totals` 不会导致最终输出整体 fallback。
+- [x] replay 任一验收失败时进程返回非零退出码。
+- [x] Round 4 三次回放均精确保留 14 个独立 diagnostics。
+- [x] `src/index.ts`、migration note 和 README 已同步。
+- [x] 施工计划状态、完成项和 `PLAN_MAP.md` 一致。
+- [x] build、专项测试、全量测试和 smoke 全部通过。
+- [x] `gitnexus_detect_changes` 只包含预期执行流。
 
 ## 6. 最终判定 (Updated 2026-06-20)
 
@@ -264,8 +265,8 @@ P2  同步 src/index.ts、migration note、README 和计划状态
 decoder 契约：通过
 handler 恢复闭环：通过 ← 已修复 (3.1 empty/all-rejected coverage guard)
 状态与统计一致性：通过 ← 已修复 (3.2 partial_valid→partial, 3.3 post-dedup counts)
-自动化验收门禁：通过 ← 已修复 (3.6 replay exits non-zero on failure)
-文档与公开 Schema 同步：通过 ← 已修复 (3.7 plan, migration note, README)
+自动化验收门禁：通过 ← summary 使用真实断言，任一检查失败时退出非零
+文档与公开 Schema 同步：通过 ← src/index.ts、migration note、README 已同步
 
 计划状态建议：已完成
 ```
@@ -277,9 +278,9 @@ handler 恢复闭环：通过 ← 已修复 (3.1 empty/all-rejected coverage gua
 - P1-3.2: partial_valid/rejected → analysis_status = "partial"
 - P1-3.3: 计数从最终 canonical 集合统一派生
 - P1-3.4: reported_totals 按已知字段+整数约束过滤
-- P1-3.5: 11 条 handler 级 mock model 测试
-- P2-3.6: replay 脚本改为可失败验收门禁
-- P2-3.7: 计划元数据、migration note、README 同步
+- P1-3.5: 11 条 handler 级 mock model 测试，关键恢复分支均有显式断言
+- P2-3.6: replay 脚本改为可失败验收门禁，summary 不再硬编码通过
+- P2-3.7: `src/index.ts`、计划元数据、migration note、README 同步
 
 ### 验证
 
@@ -289,4 +290,7 @@ npm run smoke → 10/10 pass
 npm run build → pass
 npx tsc --noEmit → 零错误
 gitnexus_detect_changes → 预期范围
+Round 4 replay ×3 → 每次 14/14 findings、1 次模型调用、0 fallback
 ```
+
+脱敏回放证据见 `docs/validation/command-output-round4-replay-2026-06-20.md`。

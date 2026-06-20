@@ -289,7 +289,6 @@ gitnexus_detect_changes(scope: all)
 - [x] tsc parser 仍只是 coverage guard/fallback。(only when model fails + non-zero + tsc_error)
 - [x] 新增 `_meta` 字段已同步 `src/schema.ts`、`src/index.ts` 和 migration note。
 - [x] 所有目标 symbol 已在修改前完成 GitNexus impact。(all LOW risk)
-- [x] build、test、smoke 和真实模型回放通过。(216 test + 10 smoke + build + replay ×3)
+- [x] build、test、smoke 和真实模型回放通过。(216 test + 10 smoke + build + [replay ×3 证据](../validation/command-output-round4-replay-2026-06-20.md))
 - [x] `gitnexus_detect_changes` 只报告 command-output 响应处理、Schema、fallback 和对应测试流程。
 - [x] `docs/PLAN_MAP.md` 状态与验证证据已更新。
-

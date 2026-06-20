@@ -85,6 +85,8 @@ MCP request
 
 模型不可用或调用失败时，工具会进入 heuristic fallback。fallback 只能提供确定性结构和低置信度 signals，不能等同于完整模型分析。
 
+`aux_compress_command_output` 会区分 `valid`、`partial_valid`、`empty`、JSON/schema 失败和 transport failure。非零退出且模型响应不可用时，工具最多进行一次受限修复调用；已有稳定 adapter 的格式可进入 deterministic coverage guard，并明确标记 fallback 和分析状态。
+
 共享模型执行、预算、evidence 和状态能力位于 `src/model-runtime/`。各工具仍处于渐进迁移阶段，具体完成度见[全工具模型优先评审与重构计划](docs/model-first-all-tools-review-plan.md)。
 
 ## 可靠性与安全边界
@@ -168,9 +170,11 @@ npm run dev
 测试包括：
 
 - workspace 与 schema 安全边界；
-- command output diagnostic、overlay、调用预算和真实 fixture；
+- command output diagnostic、overlay、调用预算、handler 级恢复和真实 fixture；
 - diff chunking 与文件级聚合；
 - 无模型配置下的 smoke fallback。
+
+Round 4 真实模型回放连续 3 次均保留 14/14 findings，每次 1 次模型调用且未使用 fallback。脱敏结果见[回放证据](docs/validation/command-output-round4-replay-2026-06-20.md)。
 
 当前测试重点偏向 `aux_compress_command_output`。其他工具的真实模型成功、部分失败、evidence 和大输入回归仍需补齐。
 
@@ -186,6 +190,7 @@ src/
 ├── prompts.ts               无状态 prompt 与响应提取
 ├── logger.ts                trace 日志
 ├── model-runtime/           共享模型调用、预算、evidence、状态
+├── decoding/                模型响应分层解码与逐 finding 校验
 ├── diagnostics/             少量确定性 diagnostic adapter
 ├── chunking/                diff/command-output 结构分块与聚合
 ├── fallback/                降级结构与 heuristic signals
@@ -226,6 +231,7 @@ test/
 | [Command Output 模型优先计划](docs/model-first-command-output-plan.md) | 任意命令输出、evidence 和通用分块 |
 | [输出 Schema 迁移](docs/migrations/model-first-output-schema.md) | analysis status、heuristic signals 和 failure 字段迁移 |
 | [模型响应契约恢复](docs/plans/command-output-response-contract-recovery.md) | **已完成** — Round 4 分层校验、null 规范化、非零退出恢复 |
+| [Round 4 回放证据](docs/validation/command-output-round4-replay-2026-06-20.md) | 3 次真实模型回放的脱敏状态、计数和门禁结果 |
 | [真实场景验证方案](docs/phase2-tools-validation-plan.md) | fixtures、契约、模型评测与 Shadow 验证 |
 | [Phase 2 计划](PHASE2_PLAN.md) | 分块框架与新增工具的原始设计 |
 
