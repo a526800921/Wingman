@@ -36,8 +36,15 @@ export function splitDiffByFile(diff: string): FileSection[] {
       });
     }
     const bodyStart = match.index + match[0].length;
+    // Lookahead: find the next file header to determine where this file's body ends.
+    // If exec returns null, lastIndex is reset to 0 for global regexes — restore it
+    // to diff.length to prevent the outer while loop from re-matching infinitely.
     fileHeaderRe.lastIndex = bodyStart;
+    const savedLastIndex = fileHeaderRe.lastIndex;
     const nextMatch = fileHeaderRe.exec(diff);
+    if (!nextMatch) {
+      fileHeaderRe.lastIndex = diff.length;
+    }
     const bodyEnd = nextMatch ? nextMatch.index : diff.length;
     sections.push({
       oldPath: match[1],
@@ -103,8 +110,12 @@ export function splitBodyByHunk(body: string, _filePath: string): Array<{ hunkHe
       chunks.push({ hunkHeader: "", content: body.slice(lastIdx, match.index) });
     }
     const contentStart = match.index + match[0].length;
+    // Same null-reset guard as splitDiffByFile
     hunkRe.lastIndex = contentStart;
     const nextMatch = hunkRe.exec(body);
+    if (!nextMatch) {
+      hunkRe.lastIndex = body.length;
+    }
     const contentEnd = nextMatch ? nextMatch.index : body.length;
     chunks.push({ hunkHeader: match[0], content: body.slice(contentStart, contentEnd) });
     lastIdx = contentEnd;

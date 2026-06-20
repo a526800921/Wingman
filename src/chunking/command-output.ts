@@ -96,6 +96,9 @@ export function chunkCommandOutput(
       }
       fileRe.lastIndex = match.index + match[0].length;
       const nextMatch = fileRe.exec(text);
+      if (!nextMatch) {
+        fileRe.lastIndex = text.length;
+      }
       const blockEnd = nextMatch ? nextMatch.index : text.length;
       const block = text.slice(match.index, blockEnd).trim();
       if (block) chunks.push({ id: `chunk-${chunkId++}`, kind: "command-section", label: match[1], text: block, source: match[1], truncated: false });
@@ -118,6 +121,9 @@ export function chunkCommandOutput(
       }
       failRe.lastIndex = match.index + match[0].length;
       const nextMatch = failRe.exec(text);
+      if (!nextMatch) {
+        failRe.lastIndex = text.length;
+      }
       const blockEnd = nextMatch ? nextMatch.index : text.length;
       const block = text.slice(match.index, blockEnd).trim();
       if (block) chunks.push({ id: `chunk-${chunkId++}`, kind: "command-section", label: `test failure #${chunkId}`, text: block, truncated: false });
@@ -144,6 +150,9 @@ export function chunkCommandOutput(
       }
       errorRe.lastIndex = match.index + match[0].length;
       const nextMatch = errorRe.exec(text);
+      if (!nextMatch) {
+        errorRe.lastIndex = text.length;
+      }
       const blockEnd = nextMatch ? nextMatch.index : text.length;
       const block = text.slice(match.index, blockEnd).trim();
       if (block) chunks.push({ id: `chunk-${chunkId++}`, kind: "command-section", label: `stack trace #${chunkId}`, text: block, truncated: false });

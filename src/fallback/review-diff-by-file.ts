@@ -55,8 +55,8 @@ export interface ReviewDiffByFileFallbackResult {
 
 function analyzeFileChunk(chunk: InputChunk): FileReview {
   const filePath = chunk.source ?? chunk.label;
-  const addedLines = (chunk.text.match(/^\+[^+]/gm) ?? []).map(l => l.slice(1));
-  const removedLines = (chunk.text.match(/^-[^-]/gm) ?? []).map(l => l.slice(1));
+  const addedLines = (chunk.text.match(/^\+[^+].*$/gm) ?? []).map(l => l.slice(1));
+  const removedLines = (chunk.text.match(/^-[^-].*$/gm) ?? []).map(l => l.slice(1));
   const hunks = parseHunks(chunk.text);
   const findings: FileReview["findings"] = [];
   const addedText = addedLines.join("\n");

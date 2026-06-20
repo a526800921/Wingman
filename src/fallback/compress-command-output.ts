@@ -71,12 +71,12 @@ function extractEslintErrors(output: string): CommandOutputFinding[] {
 
 function extractTestFailures(output: string): CommandOutputFinding[] {
   const findings: CommandOutputFinding[] = [];
-  const failBlockRe = /FAIL\s+(.+?)\n([\s\S]*?)(?=\n\s*(?:FAIL|Tests:|$))/g;
+  const failBlockRe = /FAIL\s+(.+?)\n([\s\S]*?)(?=\n\s*(?:FAIL|Tests:)|$)/g;
   let match: RegExpExecArray | null;
   while ((match = failBlockRe.exec(output)) !== null) {
     const testFile = match[1];
     const block = match[2];
-    const testNameRe = /[×✗✘]\s+(.+?)\n/g;
+    const testNameRe = /[×✗✘]\s+(.+?)(?=\n|$)/g;
     let tnMatch: RegExpExecArray | null;
     while ((tnMatch = testNameRe.exec(block)) !== null) {
       findings.push({
