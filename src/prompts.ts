@@ -19,6 +19,20 @@ export const CONTENT_MARKER_END = "<<<USER_CONTENT_END>>>";
 export const FOCUS_MARKER_START = "<<<FOCUS_DATA_START>>>";
 export const FOCUS_MARKER_END = "<<<FOCUS_DATA_END>>>";
 
+/**
+ * Sanitize user-supplied content to prevent marker collision attacks.
+ *
+ * If user input contains the literal end-marker text (e.g. `<<<USER_CONTENT_END>>>`),
+ * it would allow an attacker to prematurely close the data block and inject new
+ * instructions. We replace such occurrences with escaped variants that the model
+ * will treat as inert data.
+ */
+function sanitizeMarkers(content: string): string {
+  return content
+    .replaceAll(CONTENT_MARKER_END, "<<<USER_CONTENT_END_ESCAPED>>>")
+    .replaceAll(FOCUS_MARKER_END, "<<<FOCUS_DATA_END_ESCAPED>>>");
+}
+
 // ---------------------------------------------------------------------------
 // aux_summarize_file
 // ---------------------------------------------------------------------------
@@ -99,6 +113,8 @@ export function buildSummarizeFileUserMessage(
   fileContent: string,
   focus?: string,
 ): string {
+  fileContent = sanitizeMarkers(fileContent);
+  if (focus) focus = sanitizeMarkers(focus);
   const parts: string[] = [
     `${CONTENT_MARKER_START}`,
   ];
@@ -156,6 +172,8 @@ export function buildCompressTextUserMessage(
   label: string,
   focus?: string,
 ): string {
+  text = sanitizeMarkers(text);
+  if (focus) focus = sanitizeMarkers(focus);
   const parts: string[] = [
     `${CONTENT_MARKER_START}`,
   ];
@@ -253,6 +271,8 @@ export function buildReviewDiffUserMessage(
   diff: string,
   focus?: string,
 ): string {
+  diff = sanitizeMarkers(diff);
+  if (focus) focus = sanitizeMarkers(focus);
   const parts: string[] = [
     `${CONTENT_MARKER_START}`,
   ];
