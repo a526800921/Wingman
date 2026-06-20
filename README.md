@@ -218,10 +218,13 @@ test/
 
 | 文档 | 内容 |
 |---|---|
+| [计划地图](docs/PLAN_MAP.md) | 计划类型、依赖、状态和推荐实施顺序 |
+| [施工计划模板](docs/PLAN_TEMPLATE.md) | 不变量、Step 0 红灯测试、migration 和完成定义 |
 | [ADR-0001](docs/adr/0001-model-first.md) | 模型优先架构与 adapter 准入原则 |
 | [全工具模型优先评审](docs/model-first-all-tools-review-plan.md) | 五个工具的定位评审和迁移计划 |
 | [计划质量评审](docs/plan-quality-review.md) | 7 份设计文档的强项/弱项分析与改进建议 |
 | [Command Output 模型优先计划](docs/model-first-command-output-plan.md) | 任意命令输出、evidence 和通用分块 |
+| [输出 Schema 迁移](docs/migrations/model-first-output-schema.md) | analysis status、heuristic signals 和 failure 字段迁移 |
 | [真实场景验证方案](docs/phase2-tools-validation-plan.md) | fixtures、契约、模型评测与 Shadow 验证 |
 | [Phase 2 计划](PHASE2_PLAN.md) | 分块框架与新增工具的原始设计 |
 

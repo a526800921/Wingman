@@ -1,0 +1,100 @@
+# 计划地图
+
+本文件是 Wingman 设计与实施文档的入口，用于说明文档类型、依赖、状态和推荐实施顺序。它不替代各专项计划。
+
+## 文档类型
+
+| 类型 | 作用 | 是否可直接施工 |
+|---|---|---:|
+| ADR | 长期架构决策与约束 | 否 |
+| 战略设计 | 描述目标架构、边界和阶段 | 否 |
+| 施工计划 | 明确目标 symbol、失败 fixture、步骤和迁移 | 是 |
+| 验证计划 | 定义 fixtures、契约、指标和门禁 | 部分 |
+| Migration note | 指导公开 API 消费方升级 | 是 |
+
+## 总依赖图
+
+```text
+ADR-0001 模型优先
+  ├─ 全工具模型优先评审（战略设计）
+  │   ├─ shared model-runtime（部分完成）
+  │   ├─ summarize_file 施工计划
+  │   ├─ compress_text 施工计划
+  │   └─ review 工具收敛施工计划
+  ├─ Command Output 模型优先（专项设计）
+  │   ├─ Phase 2 diagnostic 修复
+  │   ├─ overlay 回归修复
+  │   └─ payload / 单批优化
+  ├─ 前置验证方案
+  │   └─ P0 fixtures / 契约 / 调用预算
+  └─ Model-first 输出 schema migration
+```
+
+## 推荐实施顺序
+
+```text
+1. 先写失败 fixture / expectation
+2. 统一 analysis status 与 migration 语义
+3. 完善共享 model-runtime 和 mock model 测试
+4. 修复 review 工具路径、证据和 fallback 语义
+5. 迁移 summarize_file 大输入与 fallback
+6. 迁移 compress_text 大输入与 fallback
+7. 收缩旧 heuristic 语义代码
+8. 运行真实模型评测与发布前回放
+```
+
+任何步骤不得跳过对应施工计划中的 Step 0 红灯测试。
+
+## 当前文档状态
+
+| 文档 | 类型 | 状态 | 依赖/被替代关系 |
+|---|---|---|---|
+| `docs/adr/0001-model-first.md` | ADR | Accepted | 全部模型型工具的上位约束 |
+| `docs/model-first-all-tools-review-plan.md` | 战略设计 | Active | 必须拆成专项施工计划后实施 |
+| `docs/model-first-command-output-plan.md` | 专项设计 | 部分完成 | 依赖 ADR-0001；由多个 command-output 施工方案支撑 |
+| `docs/phase2-tools-fix-plan.md` | 施工/设计混合 | 大部分完成 | 早期 diagnostic 与 batch 方案；后续细节由回归/payload 计划覆盖 |
+| `docs/chunk-optimization-regression-fix-plan.md` | 施工计划 | 大部分完成 | 覆盖 replacement → overlay、canonical findings |
+| `docs/command-output-model-payload-plan.md` | 施工计划 | 部分完成 | 覆盖紧凑 payload、单批和 enrichment |
+| `docs/phase2-tools-validation-plan.md` | 验证战略 | Active | P0 已拆到 `phase2-validation-p0-plan.md` |
+| `docs/phase2-validation-p0-plan.md` | 施工计划 | 已建立基础 | fixtures、expectations、契约和预算测试已存在 |
+| `docs/plans/summarize-file-model-first.md` | 施工计划 | 待实施 | 依赖 shared runtime、migration note |
+| `docs/plans/compress-text-model-first.md` | 施工计划 | 待实施 | 依赖 shared runtime、migration note |
+| `docs/plans/review-tools-consolidation.md` | 施工计划 | 待实施 | 优先于 summarize/compress；依赖 canonical diff path |
+| `docs/migrations/model-first-output-schema.md` | Migration note | Active | 约束所有公开输出 schema 变更 |
+
+状态只表示当前源码观察结果，不代表已发布版本承诺。实施完成后应更新本表并附验证命令。
+
+## 冲突处理规则
+
+当多份计划修改同一 symbol 时：
+
+1. ADR 与不变量优先；
+2. 新施工计划优先于旧概念设计；
+3. 先完成依赖计划，再开始下游计划；
+4. 不连续实施多个旧方案再重构，直接实现最终目标形态；
+5. 计划状态或实现发生变化时更新本地图。
+
+## 公开 API 变更规则
+
+任何 MCP input/output schema 变化必须：
+
+- 在施工计划中列出旧字段与新字段；
+- 更新 `docs/migrations/`；
+- 同步 `src/schema.ts` 与 `src/index.ts`；
+- 添加旧调用方兼容测试；
+- 至少保留一个迁移周期再删除旧字段；
+- 在 README 中只描述已经实现并验证的行为。
+
+## 完成检查
+
+每份施工计划完成时必须记录：
+
+```text
+红灯 fixture：名称与失败证据
+GitNexus impact：目标与风险等级
+实现 commit 或变更范围
+验证命令与结果
+detect_changes 结果
+migration note 是否更新
+计划地图状态是否更新
+```
