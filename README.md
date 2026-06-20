@@ -17,7 +17,9 @@ Wingman = junior 拿着 checklist 逐项打勾——"你确认了 X 吗？有没
 |------|------|
 | `aux_summarize_file` | 摘要源码/文档/测试文件。自动识别文件类型，按类型输出不同结构 |
 | `aux_compress_text` | 压缩日志、错误栈、长文档。适合 >1000 字符的长文本 |
-| `aux_review_diff` | 对 unified diff 做提交前 checklist 式审查。像 junior 逐项打勾，确保不遗漏检查项 |
+| `aux_review_diff` | 对 unified diff 做提交前 checklist 式审查。适合小 diff |
+| `aux_review_diff_by_file` | 按文件/hunk 拆分大 diff 独立分析再汇总。适合多文件大 diff，替代 `aux_review_diff` 对大数据的截断缺陷 |
+| `aux_compress_command_output` | 压缩 tsc/eslint/test/build/stack trace 输出。提取首个失败点、文件路径、行号、错误码，归并重复错误 |
 
 ## 使用场景
 
@@ -26,10 +28,22 @@ Wingman = junior 拿着 checklist 逐项打勾——"你确认了 X 吗？有没
 | 场景 | 工具 |
 |------|------|
 | 长日志 / 错误栈快速定位 | `aux_compress_text` + `focus` |
-| 大 diff 提交前 checklist 式扫描 | `aux_review_diff` |
+| 小 diff 提交前 checklist 式扫描 | `aux_review_diff` |
+| 多文件大 diff / PR review | `aux_review_diff_by_file` |
+| tsc/eslint/test 输出提取首个失败点 | `aux_compress_command_output` |
 | 测试文件提取 test_cases 和 covered_behaviors | `aux_summarize_file`（测试文件） |
 | 不熟悉的大文件快速了解结构 | `aux_summarize_file` |
-| 多视角审视同一改动 | `aux_review_diff` + 不同 `focus` |
+| 长构建日志 / stack trace 结构化 | `aux_compress_command_output` |
+| 多视角审视同一改动 | `aux_review_diff` 或 `aux_review_diff_by_file` + 不同 `focus` |
+
+### 工具选择指南
+
+| 场景 | 推荐 |
+|------|------|
+| diff < 3 文件、小改动 | `aux_review_diff` |
+| diff 多文件、大改动 | `aux_review_diff_by_file` |
+| 命令输出压缩（含首失败点、错误码） | `aux_compress_command_output` |
+| 通用长文本压缩 | `aux_compress_text` |
 
 ### ❌ 不推荐场景
 
@@ -121,7 +135,7 @@ claude mcp list
 npm install
 npm run build        # tsc 编译
 npm run dev          # tsx 直接运行
-npm test             # 运行测试（53 条）
+npm test             # 运行测试（93 条）
 npm run smoke        # 冒烟测试（不依赖 API key）
 ```
 
@@ -138,14 +152,23 @@ src/
 ├── schema.ts             # 输入/输出 Zod schema
 ├── prompts.ts            # Stateless prompt 构造 + 反注入
 ├── logger.ts             # stderr + 文件日志（trace ID + 耗时）
+├── chunking/
+│   ├── types.ts          # 分块通用类型（InputChunk, OmittedChunk, ChunkMeta）
+│   ├── diff.ts           # Diff 分块（按文件→hunk，优先级排序，省略明细）
+│   ├── command-output.ts # 命令输出分块（6 种输出类型识别）
+│   └── merge.ts          # 聚合去重、排序、meta 合并
 ├── fallback/
 │   ├── summarize-file.ts # 启发式文件摘要（按文件类型输出不同结构）
 │   ├── compress-text.ts  # 启发式文本压缩
-│   └── review-diff.ts    # 启发式 diff review
+│   ├── review-diff.ts    # 启发式 diff review
+│   ├── review-diff-by-file.ts # 启发式 per-file diff review
+│   └── compress-command-output.ts # 启发式命令输出压缩
 └── tools/
     ├── summarize-file.ts # aux_summarize_file handler
     ├── compress-text.ts  # aux_compress_text handler
-    └── review-diff.ts    # aux_review_diff handler
+    ├── review-diff.ts    # aux_review_diff handler
+    ├── review-diff-by-file.ts # aux_review_diff_by_file handler
+    └── compress-command-output.ts # aux_compress_command_output handler
 ```
 
 ## 兼容性
@@ -153,6 +176,19 @@ src/
 - Node.js >= 18
 - OpenAI-compatible Chat API（DeepSeek、Ollama、LM Studio、vLLM、llama.cpp 等）
 - Windows / macOS / Linux
+
+## 分块框架
+
+二期引入统一分块/聚合框架，解决一期对大输入简单前缀截断导致的信息丢失：
+
+```
+split → analyze chunk → merge → final result
+```
+
+- **Diff 分块**：优先按文件拆分，超大文件再按 hunk 拆分。文件按优先级排序（manifest → 安全敏感 → 源码 → 测试 → 文档），超出 `max_files` 的文件记录省略明细。
+- **命令输出分块**：自动识别 6 种输出类型（tsc/eslint/test/build/stack trace/generic），按错误边界拆分，保留后部失败点。
+- **聚合**：去重相同发现，保留最高 severity，按 severity → confidence → introduced_by_diff 排序。
+- `_meta.chunking` 中记录 `total_chunks`、`analyzed_chunks`、`omitted_chunks` 和省略明细。
 
 ## License
 
