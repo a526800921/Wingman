@@ -190,7 +190,7 @@ pnpm ERR!
 - `--watch` 多轮编译输出；
 - Next.js 生成类型错误；
 - monorepo 和 project references；
-- Windows 与 POSIX 路径；
+- POSIX 路径；
 - 无文件位置的全局配置错误；
 - npm、pnpm、Next.js 或其他构建日志包装后的 tsc 输出；
 - 多行 TS2344 等复杂类型展开；
@@ -375,7 +375,7 @@ command output 建议依次考虑：
 - 14 个 TypeScript 错误解析为 14 个 diagnostic。
 - 缩进 detail 属于前一个 diagnostic。
 - evidence 保留完整诊断块。
-- 不同换行符和 Windows 路径均可解析。
+- 不同换行符和 POSIX 路径均可解析。
 
 #### 任务 2：统一最终结果聚合
 
@@ -474,7 +474,7 @@ command output 建议依次考虑：
 | 14 个真实 tsc 错误 | 最终保持 14 条，不出现 14→20 |
 | 多个相同 TS 错误 | repeated errors 正确计数，同时保留各位置 |
 | `.next` + 项目源码混合 | 项目源码优先进入 actionable checks |
-| Windows/POSIX 路径 | 文件、行、列解析一致 |
+| POSIX 路径 | 文件、行、列解析一致 |
 | 模型全部失败 | 完整返回 fallback 结果 |
 | 模型部分失败 | 成功批次增强，失败批次保留 fallback |
 | 高置信度 tsc 仅结构化 | 返回完整结果且模型调用数为 0 |

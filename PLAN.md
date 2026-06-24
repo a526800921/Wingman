@@ -237,19 +237,15 @@ Claude Code 必须直接检查相关原文。
 环境变量：
 
 ```env
-AUX_WORKSPACE_ROOT=E:\work\some-project
+AUX_WORKSPACE_ROOT=/path/to/project
 ```
 
-路径解析函数必须覆盖 Windows 边界情况：
+路径解析函数必须覆盖 macOS 边界情况：
 
-1. 拒绝绝对路径，包括 `C:\...`、`E:\...`。
-2. 拒绝 UNC 路径，包括 `\\server\share\file`。
-3. 拒绝盘符跳转和 drive-relative 路径，例如 `C:foo`。
-4. 拒绝 `..` 遍历逃逸。
-5. 使用 `fs.realpath` 解析 workspace root 和目标路径，防止 symlink 或 NTFS junction 指向外部。
-6. 校验目标真实路径等于 workspace root，或以 `workspaceRoot + path.sep` 开头。
-7. 拒绝 NTFS alternate data streams，例如 `file.txt::$DATA`。
-8. 拒绝 Windows DOS 设备名，例如 `CON`、`PRN`、`AUX`、`NUL`、`COM1-COM9`、`LPT1-LPT9`。
+1. 拒绝绝对路径，只接受 workspace root 下的相对路径。
+2. 拒绝 `..` 遍历逃逸。
+3. 使用 `fs.realpath` 解析 workspace root 和目标路径，防止 symlink 指向外部。
+4. 校验目标真实路径等于 workspace root，或以 `workspaceRoot + path.sep` 开头。
 
 路径穿越属于安全违规，应该返回 MCP protocol error，例如 invalid params。文件不存在属于普通 tool-level error，返回 `isError: true` 的 tool result。
 
@@ -281,26 +277,26 @@ MCP stdio 的 stdout 被 JSON-RPC 协议占用。实现中不能使用 `console.
 
 server 构建完成后，在目标项目目录里运行：
 
-```powershell
-claude mcp add -s project aux-model `
-  -e AUX_MODEL_BASE_URL=https://api.deepseek.com/v1 `
-  -e AUX_MODEL_NAME=deepseek-v4-flash `
-  -e AUX_MODEL_ALLOWED_HOSTS=api.deepseek.com `
-  -e AUX_WORKSPACE_ROOT=E:\work\your-project `
-  -- node E:\work\mcp-local\dist\index.js
+```bash
+claude mcp add -s project aux-model \
+  -e AUX_MODEL_BASE_URL=https://api.deepseek.com/v1 \
+  -e AUX_MODEL_NAME=deepseek-v4-flash \
+  -e AUX_MODEL_ALLOWED_HOSTS=api.deepseek.com \
+  -e AUX_WORKSPACE_ROOT=/path/to/project \
+  -- node /path/to/Wingman/dist/index.js
 ```
 
 不要通过 `-e AUX_MODEL_API_KEY=...` 把 key 写进项目级 `.mcp.json`。推荐先在 shell 或本机 `.env` 中设置：
 
-```powershell
-$env:AUX_MODEL_API_KEY = "your_key_here"
+```bash
+export AUX_MODEL_API_KEY="your_key_here"
 ```
 
 这会在当前项目中创建或更新 `.mcp.json`。Claude Code 可能会先把项目级 server 显示为 pending，需要批准后才会连接。
 
 检查配置：
 
-```powershell
+```bash
 claude mcp list
 claude mcp get aux-model
 ```
@@ -343,7 +339,7 @@ mcp-local/
 3. 添加统一 stderr logger，禁止 stdout 日志。
 4. 实现配置读取，支持 shell 环境和本机 `.env`。
 5. 实现 OpenAI-compatible HTTP client，包含 HTTPS 策略、超时、错误分类和敏感信息脱敏。
-6. 实现安全的 workspace 路径解析，覆盖 Windows 边界情况。
+6. 实现安全的 macOS workspace 路径解析。
 7. 定义三类工具的 input schema 和 output schema。
 8. 实现 prompt injection 防护和 stateless prompt 构造。
 9. 实现 fallback 启发式摘要，并保证与模型输出同构。
@@ -352,7 +348,7 @@ mcp-local/
 12. 实现 `aux_review_diff`。
 13. 添加 README，包含安装、构建、配置、安全说明和使用说明。
 14. 添加 smoke test，不依赖模型 key 也能验证工具处理逻辑。
-15. 添加 workspace path 单元测试，覆盖 Windows 路径、UNC、`..`、junction/symlink、ADS 和设备名。
+15. 添加 workspace path 单元测试，覆盖绝对路径、`..` 和 symlink 逃逸。
 16. 添加工具集成测试，mock API 不可用、超时、非 JSON 输出和 schema 不合法。
 17. 运行 build 和测试。
 
@@ -367,7 +363,7 @@ mcp-local/
 - 没有模型配置时，工具能通过 fallback 行为工作。
 - 模型 API 失败、超时、非 JSON 输出或 schema 校验失败时，工具能降级到 fallback。
 - 读取 workspace root 之外的文件会被拒绝。
-- Windows 路径边界测试通过。
+- macOS 路径边界测试通过。
 - 日志只写 stderr，不污染 stdout。
 - README 包含 Claude Code project-scope 配置命令，并且不建议把 API key 写入 `.mcp.json`。
 

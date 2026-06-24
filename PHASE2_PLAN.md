@@ -567,7 +567,7 @@ annotations: {
 
 ### 验收命令
 
-```powershell
+```bash
 npm run build
 npm test
 ```

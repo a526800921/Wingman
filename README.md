@@ -24,7 +24,7 @@ Wingman 采用模型优先架构：
 
 新增语言、测试框架或构建工具通常不应要求新增专用 parser。只有格式稳定、场景高频且能够证明准确率、成本或可靠性收益时，才保留确定性 adapter。
 
-完整决策见 [ADR-0001：模型优先架构](docs/adr/0001-model-first.md)。
+完整决策见 [ADR-0001：模型优先架构](https://github.com/a526800921/Wingman/blob/main/docs/adr/0001-model-first.md)。
 
 ## 工具定位
 
@@ -87,7 +87,7 @@ MCP request
 
 `aux_compress_command_output` 会区分 `valid`、`partial_valid`、`empty`、JSON/schema 失败和 transport failure。非零退出且模型响应不可用时，工具最多进行一次受限修复调用；已有稳定 adapter 的格式可进入 deterministic coverage guard，并明确标记 fallback 和分析状态。
 
-共享模型执行、预算、evidence 和状态能力位于 `src/model-runtime/`。各工具仍处于渐进迁移阶段，具体完成度见[全工具模型优先评审与重构计划](docs/model-first-all-tools-review-plan.md)。
+共享模型执行、预算、evidence 和状态能力位于 `src/model-runtime/`。各工具仍处于渐进迁移阶段，具体完成度见[全工具模型优先评审与重构计划](https://github.com/a526800921/Wingman/blob/main/docs/model-first-all-tools-review-plan.md)。
 
 ## 可靠性与安全边界
 
@@ -97,16 +97,53 @@ MCP request
 - 模型结论必须尽量携带可回查 evidence；无法验证的结论应降级。
 - 模型未运行、部分失败和完整成功应使用不同状态表达；该能力正在统一到全部工具。
 - `aux_summarize_file` 的文件访问限制在 `AUX_WORKSPACE_ROOT` 内，并拒绝绝对路径与路径穿越。
-- Chat client 强制执行 HTTPS/本地 loopback 例外、host allowlist、SSRF 防护、超时与重试。
+- Chat client 强制执行 HTTPS（可显式允许本地 loopback HTTP）、SSRF 防护、超时与重试；配置 `AUX_MODEL_ALLOWED_HOSTS` 后还会执行 host allowlist。
 - Prompt 使用内容分隔、focus 数据隔离、无状态调用、JSON-only 和 schema 校验降低注入风险。
 - 日志写入 stderr 和可选文件，不占用 MCP stdio 的 stdout。
 
 ## 安装
 
-```powershell
-cd E:\work\mcp-local
+### 推荐：npm 全局安装
+
+```bash
+npm install -g @jafish/wingman-mcp
+
+# 注册并配置环境变量
+claude mcp add -s user wingman \
+  -e AUX_MODEL_API_KEY=sk-xxx \
+  -e AUX_MODEL_BASE_URL=https://api.deepseek.com/v1 \
+  -e AUX_MODEL_NAME=deepseek-v4-flash \
+  -e AUX_MODEL_ALLOWED_HOSTS=api.deepseek.com \
+  -- wingman-mcp
+```
+
+或手动编辑配置文件（项目级为项目根目录 `.mcp.json`，用户级为 `~/.claude.json`）：
+
+```json
+{
+  "mcpServers": {
+    "wingman": {
+      "command": "wingman-mcp",
+      "env": {
+        "AUX_MODEL_API_KEY": "sk-xxx",
+        "AUX_MODEL_BASE_URL": "https://api.deepseek.com/v1",
+        "AUX_MODEL_NAME": "deepseek-v4-flash",
+        "AUX_MODEL_ALLOWED_HOSTS": "api.deepseek.com"
+      }
+    }
+  }
+}
+```
+
+> **注意**：`npx @jafish/wingman-mcp` 在部分环境下存在兼容性问题（`sh: wingman-mcp: command not found`），推荐使用 `npm install -g` 全局安装。`AUX_WORKSPACE_ROOT` 默认为当前工作目录。
+
+### 本地 build（开发 / 自定义模型配置）
+
+```bash
+cd /path/to/Wingman
 npm install
 npm run build
+claude mcp add -s project wingman -- node "$(pwd)/dist/index.js"
 ```
 
 ## 配置
@@ -119,7 +156,7 @@ AUX_MODEL_BASE_URL=https://api.deepseek.com/v1
 AUX_MODEL_NAME=deepseek-v4-flash
 AUX_MODEL_TIMEOUT_MS=30000
 AUX_MODEL_ALLOWED_HOSTS=api.deepseek.com
-AUX_LOG_FILE=E:\work\mcp-local\.aux-model.log
+AUX_LOG_FILE=/path/to/Wingman/.aux-model.log
 ```
 
 环境变量：
@@ -139,19 +176,9 @@ AUX_LOG_FILE=E:\work\mcp-local\.aux-model.log
 
 \* 未配置 API key 时进入 heuristic fallback。该模式可用于降级和结构信号提取，但不等同于完整模型分析。
 
-## 注册 MCP
+## 验证
 
-```powershell
-# 当前项目
-claude mcp add -s project wingman -- node E:\work\mcp-local\dist\index.js
-
-# 用户级
-claude mcp add -s user wingman -- node E:\work\mcp-local\dist\index.js
-```
-
-验证：
-
-```powershell
+```bash
 claude mcp list
 ```
 
@@ -159,7 +186,7 @@ claude mcp list
 
 ## 开发
 
-```powershell
+```bash
 npm install
 npm run build
 npm test
@@ -174,7 +201,7 @@ npm run dev
 - diff chunking 与文件级聚合；
 - 无模型配置下的 smoke fallback。
 
-Round 4 真实模型回放连续 3 次均保留 14/14 findings，每次 1 次模型调用且未使用 fallback。脱敏结果见[回放证据](docs/validation/command-output-round4-replay-2026-06-20.md)。
+Round 4 真实模型回放连续 3 次均保留 14/14 findings，每次 1 次模型调用且未使用 fallback。脱敏结果见[回放证据](https://github.com/a526800921/Wingman/blob/main/docs/validation/command-output-round4-replay-2026-06-20.md)。
 
 当前测试重点偏向 `aux_compress_command_output`。其他工具的真实模型成功、部分失败、evidence 和大输入回归仍需补齐。
 
@@ -223,23 +250,23 @@ test/
 
 | 文档 | 内容 |
 |---|---|
-| [计划地图](docs/PLAN_MAP.md) | 计划类型、依赖、状态和推荐实施顺序 |
-| [施工计划模板](docs/PLAN_TEMPLATE.md) | 不变量、Step 0 红灯测试、migration 和完成定义 |
-| [ADR-0001](docs/adr/0001-model-first.md) | 模型优先架构与 adapter 准入原则 |
-| [全工具模型优先评审](docs/model-first-all-tools-review-plan.md) | 五个工具的定位评审和迁移计划 |
-| [计划质量评审](docs/plan-quality-review.md) | 7 份设计文档的强项/弱项分析与改进建议 |
-| [Command Output 模型优先计划](docs/model-first-command-output-plan.md) | 任意命令输出、evidence 和通用分块 |
-| [输出 Schema 迁移](docs/migrations/model-first-output-schema.md) | analysis status、heuristic signals 和 failure 字段迁移 |
-| [模型响应契约恢复](docs/plans/command-output-response-contract-recovery.md) | **已完成** — Round 4 分层校验、null 规范化、非零退出恢复 |
-| [Round 4 回放证据](docs/validation/command-output-round4-replay-2026-06-20.md) | 3 次真实模型回放的脱敏状态、计数和门禁结果 |
-| [真实场景验证方案](docs/phase2-tools-validation-plan.md) | fixtures、契约、模型评测与 Shadow 验证 |
-| [Phase 2 计划](PHASE2_PLAN.md) | 分块框架与新增工具的原始设计 |
+| [计划地图](https://github.com/a526800921/Wingman/blob/main/docs/PLAN_MAP.md) | 计划类型、依赖、状态和推荐实施顺序 |
+| [施工计划模板](https://github.com/a526800921/Wingman/blob/main/docs/PLAN_TEMPLATE.md) | 不变量、Step 0 红灯测试、migration 和完成定义 |
+| [ADR-0001](https://github.com/a526800921/Wingman/blob/main/docs/adr/0001-model-first.md) | 模型优先架构与 adapter 准入原则 |
+| [全工具模型优先评审](https://github.com/a526800921/Wingman/blob/main/docs/model-first-all-tools-review-plan.md) | 五个工具的定位评审和迁移计划 |
+| [计划质量评审](https://github.com/a526800921/Wingman/blob/main/docs/plan-quality-review.md) | 7 份设计文档的强项/弱项分析与改进建议 |
+| [Command Output 模型优先计划](https://github.com/a526800921/Wingman/blob/main/docs/model-first-command-output-plan.md) | 任意命令输出、evidence 和通用分块 |
+| [输出 Schema 迁移](https://github.com/a526800921/Wingman/blob/main/docs/migrations/model-first-output-schema.md) | analysis status、heuristic signals 和 failure 字段迁移 |
+| [模型响应契约恢复](https://github.com/a526800921/Wingman/blob/main/docs/plans/command-output-response-contract-recovery.md) | **已完成** — Round 4 分层校验、null 规范化、非零退出恢复 |
+| [Round 4 回放证据](https://github.com/a526800921/Wingman/blob/main/docs/validation/command-output-round4-replay-2026-06-20.md) | 3 次真实模型回放的脱敏状态、计数和门禁结果 |
+| [真实场景验证方案](https://github.com/a526800921/Wingman/blob/main/docs/phase2-tools-validation-plan.md) | fixtures、契约、模型评测与 Shadow 验证 |
+| [Phase 2 计划](https://github.com/a526800921/Wingman/blob/main/PHASE2_PLAN.md) | 分块框架与新增工具的原始设计 |
 
 ## 兼容性
 
 - Node.js 18+
 - OpenAI-compatible Chat API
-- Windows、macOS、Linux
+- macOS
 
 ## License
 

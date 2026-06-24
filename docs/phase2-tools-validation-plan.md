@@ -65,7 +65,7 @@ test/
       tsc/
         multiline-ts2344.txt
         next-generated-types.txt
-        windows-paths.txt
+        nested-paths.txt
         pretty-ansi.txt
         watch-mode.txt
         global-config-error.txt
@@ -137,7 +137,7 @@ expectation 只描述稳定事实和质量阈值：
 
 - 一个完整 diagnostic 对应一个 finding。
 - detail、代码片段和 related information 不产生独立 finding。
-- Windows、POSIX 路径和无文件位置错误均可处理。
+- POSIX 路径和无文件位置错误均可处理。
 - ANSI 清理不改变错误码、位置和正文。
 - 无法识别的片段进入低置信度 fallback，不伪造字段。
 - 单个异常片段不影响其他 diagnostics。
@@ -174,7 +174,7 @@ expectation 只描述稳定事实和质量阈值：
 在固定 fixture 基础上自动生成输入变体：
 
 - CRLF 与 LF 相互转换；
-- Windows 与 POSIX 路径替换；
+- 绝对路径与相对路径替换；
 - 插入或移除 ANSI 颜色码；
 - diagnostic 之间加入空行和无关日志；
 - 改变错误顺序；

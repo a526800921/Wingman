@@ -70,6 +70,7 @@ ADR-0001 模型优先
 | `docs/plans/compress-text-model-first.md` | 施工计划 | 待实施 | 依赖 shared runtime、migration note |
 | `docs/plans/review-tools-consolidation.md` | 施工计划 | 待实施 | 优先于 summarize/compress；依赖 canonical diff path |
 | `docs/migrations/model-first-output-schema.md` | Migration note | Active | 约束所有公开输出 schema 变更 |
+| `docs/plans/npm-publish.md` | 施工计划 | Ready | npm 发布配置（bin、files、npx 安装） |
 
 状态只表示当前源码观察结果，不代表已发布版本承诺。实施完成后应更新本表并附验证命令。
 

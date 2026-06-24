@@ -121,7 +121,7 @@ finding.error_code === errorCode
 
 对于同一文件中的 7 个 TS2344，该条件每次都会命中第一条 line 47，导致 line、column、evidence 和 first_seen_index 被复制。
 
-此外，用冒号拆分字符串 ID 对 Windows 盘符和包含冒号的路径不安全。
+此外，用冒号拆分字符串 ID 对包含冒号的路径不安全。
 
 ### 5.2 模型结果替代完整 parser 结果
 
@@ -191,7 +191,7 @@ tsc-13
 验收标准：
 
 - 7 个 TS2344 能分别映射到 47、83、92、101、110、119、191；
-- Windows 盘符不影响 ID 映射；
+- 路径内容不影响 ID 映射；
 - 模型返回未知 ID 时不创建高置信度 canonical finding。
 
 ### P0-2：将模型处理改为 overlay

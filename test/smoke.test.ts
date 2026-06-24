@@ -143,7 +143,7 @@ describe("Smoke tests (no API key, fallback mode)", () => {
   it("aux_summarize_file rejects absolute paths", async () => {
     await assert.rejects(
       () => handleSummarizeFile(
-        { path: "C:\\Windows\\System32\\config\\sam" },
+        { path: "/etc/passwd" },
         { workspaceRoot: TMP_DIR },
       ),
       { message: /absolute|invalid params/i },

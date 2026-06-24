@@ -50,10 +50,8 @@ const SUCCESS_RE = buildCategoryRegex(SUCCESS_KEYWORDS);
 // Extraction regexes (paths, URLs, timestamps, IPs)
 // ---------------------------------------------------------------------------
 
-// Windows paths: C:\..., D:\path\to\file
-const WIN_PATH_RE = /\b[A-Za-z]:[\\/][\w\\/.\-]+/g;
-// Unix paths: /usr/bin, /home/user/file.txt
-const UNIX_PATH_RE = /\b\/[\w\/.\-]+/g;
+// POSIX paths: /usr/bin, /Users/name/file.txt
+const POSIX_PATH_RE = /\b\/[\w\/.\-]+/g;
 // URLs
 const URL_RE = /\bhttps?:\/\/[^\s]+/g;
 // Timestamps: 2024-01-15T14:30:00 or 2024-01-15 14:30
@@ -192,9 +190,8 @@ export function compressTextFallback(
   }
 
   // ---- 5. Extract paths, URLs, etc. ----
-  const winPaths = collectMatches(workingText, WIN_PATH_RE);
-  const unixPaths = collectMatches(workingText, UNIX_PATH_RE);
-  const pathCount = winPaths.length + unixPaths.length;
+  const paths = collectMatches(workingText, POSIX_PATH_RE);
+  const pathCount = paths.length;
 
   const urls = collectMatches(workingText, URL_RE);
   const urlCount = urls.length;

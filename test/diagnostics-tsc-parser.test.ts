@@ -78,11 +78,6 @@ FAIL src/app.test.ts
 Tests: 1 failed, 10 passed
 `;
 
-/** Windows paths with backslashes. */
-const WINDOWS_PATHS = String.raw`src\app.ts(10,5): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
-src\utils\helpers.ts(20,3): error TS2322: Type 'number' is not assignable to type 'string'.
-`;
-
 /** Multi-line type expansion (complex TS2344). */
 const COMPLEX_TYPE_EXPANSION = `src/models.ts(50,10): error TS2344: Type '{ id: number; name: string; nested: { deep: boolean; }; }' does not satisfy the constraint 'BaseModel'.
   The types of 'nested.deep' are incompatible between these types.
@@ -97,12 +92,6 @@ describe("stripAnsi", () => {
     const input = "\x1b[96msrc/app.ts\x1b[0m:\x1b[93m10\x1b[0m";
     const result = stripAnsi(input);
     assert.equal(result, "src/app.ts:10");
-  });
-
-  it("preserves paths with Windows backslashes", () => {
-    const input = String.raw`\x1b[96msrc\app.ts\x1b[0m:\x1b[93m10\x1b[0m`;
-    const result = stripAnsi(input);
-    assert.ok(result.includes(String.raw`src\app.ts`));
   });
 
   it("handles empty string", () => {
@@ -257,17 +246,6 @@ describe("parseTscDiagnostics", () => {
     assert.equal(result.diagnostics.length, 1,
       `Expected 1 tsc diagnostic, got ${result.diagnostics.length}`);
     assert.equal(result.diagnostics[0].file, "src/app.ts");
-  });
-
-  it("parses Windows backslash paths", () => {
-    const result = parseTscDiagnostics(WINDOWS_PATHS);
-    assert.equal(result.diagnostics.length, 2);
-    // First diagnostic with backslash path
-    assert.ok(result.diagnostics[0].file!.includes("app.ts"),
-      `Expected app.ts in file, got: ${result.diagnostics[0].file}`);
-    assert.equal(result.diagnostics[0].line, 10);
-    assert.equal(result.diagnostics[0].column, 5);
-    assert.equal(result.diagnostics[0].error_code, "TS2345");
   });
 
   it("collects complex type expansion detail lines", () => {

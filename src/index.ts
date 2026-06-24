@@ -1,10 +1,12 @@
+#!/usr/bin/env node
 /**
  * 辅助模型 MCP server 入口。
  *
  * 以 stdio 进程运行，通过 Claude Code project-scope 配置接入。
- * 提供 aux_summarize_file、aux_compress_text、aux_review_diff 三个工具。
+ * 提供五个只读的摘要、压缩与 diff 审查工具。
  */
 
+import { readFileSync } from "node:fs";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -21,7 +23,11 @@ import { handleReviewDiffByFile } from "./tools/review-diff-by-file.js";
 import { handleCompressCommandOutput } from "./tools/compress-command-output.js";
 
 const SERVER_NAME = "wingman";
-const SERVER_VERSION = "0.1.0";
+const SERVER_VERSION = (
+  JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf-8")) as {
+    version: string;
+  }
+).version;
 
 // --- Tool definitions (inputSchema for tools/list) ---
 

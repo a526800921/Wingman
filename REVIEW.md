@@ -21,19 +21,15 @@
 
 四个评审从不同角度独立发现了一致的问题。
 
-### 1. 路径穿越沙箱在 Windows 上有严重盲区
+### 1. 路径穿越沙箱需要覆盖 macOS symlink 逃逸
 
 > 架构 / 安全 / 实施 均指出
 
-当前计划只说了"拒绝读取 workspace root 之外的路径"，但没有定义具体的 sanitization 函数。Windows 上的以下攻击面均未覆盖：
+当前计划只说了"拒绝读取 workspace root 之外的路径"，但没有定义具体的 sanitization 函数。macOS 上需要覆盖：
 
-- **绝对路径绕过**：`path.resolve(workspaceRoot, "E:\\etc\\passwd")` 直接返回绝对路径，忽略 workspaceRoot
-- **盘符跳跃**：`C:` 在不同盘符间解析行为不一致
-- **UNC 路径**：`\\server\share\file` 绕过盘符检查
-- **`..` 遍历**：`../../../windows/system32/config/sam`
-- **NTFS junction / symlinks**：工作区内符号链接指向外部
-- **NTFS alternate data streams**：`file.txt::$DATA`
-- **DOS 设备名**：`CON`、`NUL`、`COM1` 可能导致进程 hang 或 crash
+- **绝对路径绕过**：绝对路径忽略 workspace root
+- **`..` 遍历**：`../../../etc/passwd`
+- **symlink 逃逸**：工作区内符号链接指向外部
 
 **建议**：
 
@@ -44,11 +40,6 @@ resolveSafePath(workspaceRoot, userPath):
 3. 解析 symlinks: fs.realpath(normalizedPath)
 4. 解析 workspace root: fs.realpath(workspaceRoot)
 5. 验证: resolvedPath.startsWith(resolvedRoot + path.sep) || equals resolvedRoot
-6. Windows 特殊处理:
-   - 拒绝 UNC 路径 (path.isUNC 或 \\ 开头)
-   - 拒绝 DOS 设备名: CON, PRN, AUX, NUL, COM1-COM9, LPT1-LPT9
-   - 确保盘符与 workspace root 一致
-   - 拒绝 NTFS stream 语法 (: 在文件名中)
 ```
 
 ---
@@ -132,7 +123,7 @@ server.registerTool("aux_summarize_file", {
 
 - API key 从 shell 环境变量读取（`process.env.AUX_MODEL_API_KEY`），不通过 `-e` 传入
 - 支持 `.env` 文件（`.gitignore` 排除）
-- 后续版本考虑 Windows Credential Manager / macOS Keychain 集成
+- 后续版本考虑 macOS Keychain 集成
 - 日志和错误消息中永远不要输出 `Authorization` header
 
 ---
@@ -156,7 +147,7 @@ server.registerTool("aux_summarize_file", {
 
 | # | 威胁 | 严重度 | 涉及组件 |
 |---|------|--------|----------|
-| T1 | 路径穿越：绝对路径 / `..` / UNC / NTFS junction 绕过 `AUX_WORKSPACE_ROOT` | **CRITICAL** | 文件访问层 |
+| T1 | 路径穿越：绝对路径 / `..` / symlink 绕过 `AUX_WORKSPACE_ROOT` | **CRITICAL** | 文件访问层 |
 | T2 | Prompt injection：用户内容注入辅助模型，操纵输出 | **CRITICAL** | 所有工具 |
 | T3 | SSRF：`AUX_MODEL_BASE_URL` 可指向内网服务 (169.254.169.254, 10.0.0.1) | **HIGH** | HTTP client |
 | T4 | TLS 降级：`http://` 不被拒绝，API key 明文传输 | **HIGH** | HTTP client |
@@ -225,7 +216,7 @@ _meta: { model: string, tokens_used?: number, input_truncated?: boolean }
 
 | # | 建议 | 来源维度 |
 |---|------|----------|
-| 1 | 实现安全的路径 sanitization 函数（含 Windows 边缘情况全部覆盖） | 架构 + 安全 + 实施 |
+| 1 | 实现安全的 macOS 路径 sanitization 函数 | 架构 + 安全 + 实施 |
 | 2 | System prompt 中加入反 prompt injection 保护，用户内容用分隔符严格包裹 | 安全 + API + 实施 |
 | 3 | 为三个工具添加 `ToolAnnotations`（`openWorldHint`, `readOnlyHint`）和 `outputSchema` | API + 架构 |
 | 4 | API key 改为从环境变量读取，不存入 `.mcp.json` | 安全 + API |
@@ -278,7 +269,7 @@ mcp-local/
 │       └── review-diff.ts    # aux_review_diff
 ├── test/
 │   ├── smoke.test.ts         # 不依赖 API key 的冒烟测试
-│   ├── workspace.test.ts     # 路径解析单元测试 (含 Windows 边缘情况)
+│   ├── workspace.test.ts     # macOS 路径解析单元测试
 │   ├── fallback.test.ts      # fallback 行为单元测试
 │   └── tools.test.ts         # 工具集成测试 (需 mock HTTP)
 ├── package.json
@@ -300,7 +291,7 @@ mcp-local/
 
 **但 v1 在安全实现细节上有严重缺口**：
 
-- 路径沙箱在 Windows 平台上未覆盖关键攻击面（绝对路径、UNC、DOS 设备名）
+- 路径沙箱需要覆盖 macOS 绝对路径、遍历和 symlink 逃逸
 - Prompt injection 没有技术性防御层
 - MCP 协议内置的安全/元数据机制未被利用
 - API key 存储方式存在泄露风险

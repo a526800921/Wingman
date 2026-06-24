@@ -5,7 +5,7 @@
 - 评审日期：2026-06-20
 - 评审提交：`9b87864 feat: command-output model response contract recovery`
 - 对应计划：`docs/plans/command-output-response-contract-recovery.md`
-- 原始报告：`E:\work\cc-music\docs\aux-model-full-test-r4.md`
+- 原始报告：外部项目中的 `docs/aux-model-full-test-r4.md`
 - 初评结论：部分完成
 - 复评结论：**全部问题已修复（2026-06-20）**
 

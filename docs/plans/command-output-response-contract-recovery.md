@@ -9,7 +9,7 @@
 - 相关 ADR：`docs/adr/0001-model-first.md`
 - 公开 schema 变化：是，仅新增 optional `_meta` 可观测字段
 - Migration note：`docs/migrations/model-first-output-schema.md`
-- 真实报告：`E:\work\cc-music\docs\aux-model-full-test-r4.md`
+- 真实报告：外部项目中的 `docs/aux-model-full-test-r4.md`
 
 ## 1. 问题与证据
 

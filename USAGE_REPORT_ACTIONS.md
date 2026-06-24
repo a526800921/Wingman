@@ -1,6 +1,6 @@
 # aux-model 使用报告驱动调整清单
 
-来源报告：`E:\work\cc-music\docs\aux-model-usage-report.md`
+来源报告：外部项目中的 `docs/aux-model-usage-report.md`
 
 生成日期：2026-06-19
 

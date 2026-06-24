@@ -101,18 +101,6 @@ describe("parser contract", () => {
       `Detail 'nested.deep' should be in exactly 1 diagnostic, got ${nestedDiags.length}`);
   });
 
-  it("Windows and POSIX paths both parse correctly", () => {
-    const mixed = [
-      String.raw`src\app.ts(10,5): error TS2345: Type error`,
-      `src/utils.ts(8,1): error TS2304: Cannot find name`,
-    ].join("\n");
-
-    const result = parseTscDiagnostics(mixed);
-    assert.equal(result.diagnostics.length, 2);
-    assert.ok(result.diagnostics[0].file!.includes("app.ts"));
-    assert.ok(result.diagnostics[1].file!.includes("utils.ts"));
-  });
-
   it("parser preserves file, line, column, error_code from input", () => {
     const result = parseTscDiagnostics("src/app.ts(42,15): error TS2345: Test error");
     assert.equal(result.diagnostics.length, 1);
