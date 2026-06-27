@@ -1,0 +1,12 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index abc123..def456 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,7 @@
++# 2026-06-27 Release
++
++- Added async translation support for Swift Concurrency
++
+ ## 2026-06-20 Release
+
+ - Fixed rate-limiting retry logic for API v2

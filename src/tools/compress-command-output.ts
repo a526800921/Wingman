@@ -28,6 +28,7 @@ import {
 } from "../fallback/compress-command-output.js";
 import { chunkCommandOutput, detectOutputKind } from "../chunking/command-output.js";
 import { deduplicateCommandFindings } from "../chunking/merge.js";
+import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
 import { createTraceId, traceLogger, logDuration } from "../logger.js";
 
 function sanitizeEvidence(text: string): string {
@@ -399,9 +400,6 @@ async function modelFirstPath(
             fallback_used: true,
             chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "model-first-fallback" },
             analysis_status: fb.findings.length > 0 ? "partial" : "incomplete",
-            model_attempted: true,
-            model_skip_reason: undefined,
-            model_failure_reason: modelFailureReason,
             model_response_status: modelResponseStatus,
             model_call_attempts: modelCallAttempts,
             model_findings_received: modelFindingsReceived,
@@ -416,6 +414,14 @@ async function modelFirstPath(
             detector_hint: detectorHint,
             model_detected_kind: modelDetectedKind,
             kind_mismatch: modelDetectedKind ? modelDetectedKind !== detectorHint : false,
+            ...buildDiagnosticMeta({
+              analysisMode: "heuristic_fallback",
+              modelUsed: false,
+              modelAttempted: true,
+              modelFailureReason,
+              confidence: "low",
+              limitations: ["Model analysis failed, results derived deterministically from known format"],
+            }),
           } as CompressCommandOutputOutput["_meta"],
         };
 
@@ -477,9 +483,15 @@ async function modelFirstPath(
       fallback_used: fallbackUsed,
       chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "model-first" },
       analysis_status: analysisStatus,
-      model_attempted: true,
-      model_skip_reason: undefined,
-      model_failure_reason: modelFailureReason,
+      ...buildDiagnosticMeta({
+        analysisMode: fallbackUsed ? "mixed" : "model_analysis",
+        modelUsed: !fallbackUsed,
+        modelAttempted: true,
+        modelFailureReason,
+        confidence: verifiedCount > 0 && unverifiedCount === 0 && modelFindingsRejected === 0
+          ? "high" : modelFindings.length > 0 ? "medium" : "low",
+        limitations: inputTruncated ? ["Command output was truncated, some content may not have been analyzed"] : undefined,
+      }),
       // P0: unified reliability semantics — new fields
       model_response_status: modelResponseStatus,
       model_call_attempts: modelCallAttempts,
@@ -584,8 +596,12 @@ async function autoPath(
       fallback_used: !modelUsed,
       chunking: meta,
       analysis_status: analysisStatus,
-      model_attempted: modelUsed,
-      model_skip_reason: !modelUsed && enrichmentMode === "off" ? "deterministic_fast_path" : undefined,
+      ...buildDiagnosticMeta({
+        analysisMode: modelUsed ? "mixed" : "heuristic_fallback",
+        modelUsed,
+        modelAttempted: modelUsed,
+        modelSkipReason: !modelUsed && enrichmentMode === "off" ? "deterministic_fast_path" : !modelUsed ? "model_not_configured" : undefined,
+      }),
       diagnostics_parsed: parsedCount,
       findings_retained: canonicalFindings.length,
       detector_hint: detectorHint,
@@ -632,8 +648,13 @@ function fallbackOnlyResult(
       fallback_used: true,
       chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "fallback" },
       analysis_status: analysisStatus,
-      model_attempted: false,
-      model_skip_reason: "model_not_configured",
+      ...buildDiagnosticMeta({
+        analysisMode: "heuristic_fallback",
+        modelUsed: false,
+        modelAttempted: false,
+        modelSkipReason: "model_not_configured",
+        limitations: ["Deterministic parsing only, model enrichment not applied"],
+      }),
       findings_retained: fb.findings.length,
       detector_hint: detectorHint,
     } as CompressCommandOutputOutput["_meta"],
@@ -833,18 +854,20 @@ function deriveFromFindings(
   outputLength: number,
   maxChars: number,
 ): DerivedFields {
+  const SUCCESS_KINDS = new Set(["test_success", "build_success"]);
+
   const sortedByIndex = [...findings].sort(
     (a, b) => (a.first_seen_index ?? 0) - (b.first_seen_index ?? 0),
   );
   const firstFailure = sortedByIndex.find(f =>
-    f.kind !== "warning" && f.kind !== "info",
+    f.kind !== "warning" && f.kind !== "info" && !SUCCESS_KINDS.has(f.kind),
   );
 
   const sourceKindPriority: Record<string, number> = {
     project: 0, test: 1, generated: 2, dependency: 3, unknown: 4,
   };
   const primaryActionable = [...findings]
-    .filter(f => f.kind !== "warning" && f.kind !== "info")
+    .filter(f => f.kind !== "warning" && f.kind !== "info" && !SUCCESS_KINDS.has(f.kind))
     .sort((a, b) => {
       const skA = sourceKindPriority[classifySourceKindFromFile(a.file)] ?? 99;
       const skB = sourceKindPriority[classifySourceKindFromFile(b.file)] ?? 99;

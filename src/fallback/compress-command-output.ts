@@ -9,7 +9,7 @@ import type { CommandDiagnostic } from "../diagnostics/types.js";
 import { logger } from "../logger.js";
 
 export interface CommandOutputFinding {
-  kind: "test_failure" | "type_error" | "lint_error" | "build_error" | "runtime_exception" | "warning" | "info" | "unknown";
+  kind: "test_failure" | "type_error" | "lint_error" | "build_error" | "runtime_exception" | "warning" | "info" | "unknown" | "test_success" | "build_success";
   message: string;
   error_code?: string;
   rule_id?: string;

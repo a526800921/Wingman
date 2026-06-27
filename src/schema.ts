@@ -54,6 +54,11 @@ export const ResultMetaSchema = z.strictObject({
   model_attempted: z.boolean().optional(),
   model_skip_reason: z.string().optional(),
   model_failure_reason: z.string().optional(),
+  // Step 9: unified diagnostic fields (TranslateBar report reliability)
+  model_used: z.boolean().optional(),
+  analysis_mode: z.enum(["model_analysis", "heuristic_fallback", "mixed", "unsupported"]).optional(),
+  confidence: ConfidenceSchema.optional(),
+  limitations: z.array(z.string()).optional(),
 });
 export type ResultMeta = z.infer<typeof ResultMetaSchema>;
 
@@ -300,6 +305,11 @@ export const ReviewDiffByFileOutput = authoritativeMarker.merge(
       model_attempted: z.boolean().optional(),
       model_skip_reason: z.string().optional(),
       model_failure_reason: z.string().optional(),
+      // Step 9: unified diagnostic fields (TranslateBar report reliability)
+      model_used: z.boolean().optional(),
+      analysis_mode: z.enum(["model_analysis", "heuristic_fallback", "mixed", "unsupported"]).optional(),
+      confidence: ConfidenceSchema.optional(),
+      limitations: z.array(z.string()).optional(),
       // Phase 2: number of files included in aggregated output
       files_analyzed: z.number().int().nonnegative().optional(),
       files_omitted: z.number().int().nonnegative().optional(),
@@ -313,7 +323,7 @@ export type ReviewDiffByFileOutput = z.infer<typeof ReviewDiffByFileOutput>;
 // ---------------------------------------------------------------------------
 
 export const CommandOutputFindingSchema = z.strictObject({
-  kind: z.enum(["test_failure", "type_error", "lint_error", "build_error", "runtime_exception", "warning", "info", "unknown"]),
+  kind: z.enum(["test_failure", "type_error", "lint_error", "build_error", "runtime_exception", "warning", "info", "unknown", "test_success", "build_success"]),
   message: z.string(),
   error_code: z.string().optional(),
   rule_id: z.string().optional(),
@@ -369,6 +379,11 @@ export const CompressCommandOutputOutput = authoritativeMarker.merge(
       model_attempted: z.boolean().optional(),
       model_skip_reason: z.string().optional(),
       model_failure_reason: z.string().optional(),
+      // Step 9: unified diagnostic fields (TranslateBar report reliability)
+      model_used: z.boolean().optional(),
+      analysis_mode: z.enum(["model_analysis", "heuristic_fallback", "mixed", "unsupported"]).optional(),
+      confidence: ConfidenceSchema.optional(),
+      limitations: z.array(z.string()).optional(),
       // P0: response contract recovery
       model_response_status: z.string().optional(),
       model_call_attempts: z.number().int().nonnegative().optional(),

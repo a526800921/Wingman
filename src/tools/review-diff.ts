@@ -28,6 +28,7 @@ import {
   extractJsonFromResponse,
 } from "../prompts.js";
 import { reviewDiffFallback } from "../fallback/review-diff.js";
+import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
 import { createTraceId, traceLogger, logDuration } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -280,8 +281,9 @@ async function modelReview(
     throw new Error("ChatClient reported unavailable despite modelApiKey being set");
   }
 
-  const systemPrompt = buildReviewDiffSystemPrompt();
-  const userMessage = buildReviewDiffUserMessage(diff, focus);
+  const today = new Date().toISOString().slice(0, 10);
+  const systemPrompt = buildReviewDiffSystemPrompt(today);
+  const userMessage = buildReviewDiffUserMessage(diff, focus, today);
 
   const { text: rawResponse, usage } = await client.chat(systemPrompt, userMessage);
 
@@ -317,7 +319,12 @@ async function modelReview(
       input_truncated: inputTruncated,
       fallback_used: false,
       analysis_status: inputTruncated ? "partial" : "complete",
-      model_attempted: true,
+      ...buildDiagnosticMeta({
+        analysisMode: "model_analysis",
+        modelUsed: true,
+        modelAttempted: true,
+        limitations: inputTruncated ? ["Diff was truncated, some changes may not have been reviewed"] : undefined,
+      }),
     },
   };
 
@@ -362,8 +369,13 @@ function heuristicReview(
       input_truncated: inputTruncated,
       fallback_used: true,
       analysis_status: "partial" as const,
-      model_attempted: false,
-      model_skip_reason: "model_not_configured",
+      ...buildDiagnosticMeta({
+        analysisMode: "heuristic_fallback",
+        modelUsed: false,
+        modelAttempted: false,
+        modelSkipReason: "model_not_configured",
+        limitations: ["Pattern-based review only, no semantic analysis"],
+      }),
     },
   };
 

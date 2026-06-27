@@ -17,6 +17,7 @@ import {
   extractJsonFromResponse,
 } from "../prompts.js";
 import { reviewDiffByFileFallback } from "../fallback/review-diff-by-file.js";
+import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
 import { chunkDiff } from "../chunking/diff.js";
 import type { ChunkMeta } from "../chunking/types.js";
 import { sortFindings, deduplicateFindings, buildFindingIdentity } from "../chunking/merge.js";
@@ -38,8 +39,9 @@ async function singleCallModelReview(
   log: ReturnType<typeof traceLogger>,
 ): Promise<{ findings: DiffFinding[] | null; tokens: number; promptTokens: number; completionTokens: number } | null> {
   try {
-    const systemPrompt = buildReviewDiffByFileSystemPrompt();
-    const userMsg = buildReviewDiffByFileUserMessage(diff, "full-diff", false, focus);
+    const today = new Date().toISOString().slice(0, 10);
+    const systemPrompt = buildReviewDiffByFileSystemPrompt(today);
+    const userMsg = buildReviewDiffByFileUserMessage(diff, "full-diff", false, focus, today);
     const { text: raw, usage } = await client.chat(systemPrompt, userMsg);
     const jsonStr = extractJsonFromResponse(raw);
     const parsed = JSON.parse(jsonStr);
@@ -173,9 +175,14 @@ function buildFallbackOutput(
       input_truncated: meta.input_truncated,
       fallback_used: true,
       analysis_status: "partial" as const,
-      model_attempted: false,
-      model_skip_reason: "model_not_configured",
       chunking: meta,
+      ...buildDiagnosticMeta({
+        analysisMode: "heuristic_fallback",
+        modelUsed: false,
+        modelAttempted: false,
+        modelSkipReason: "model_not_configured",
+        limitations: ["Pattern-based review only, no semantic analysis"],
+      }),
     },
   };
 }
@@ -236,7 +243,8 @@ export async function handleReviewDiffByFile(
         const CONCURRENCY = 2;
         const MAX_MODEL_CHUNKS = 20;
 
-        const systemPrompt = buildReviewDiffByFileSystemPrompt();
+        const today = new Date().toISOString().slice(0, 10);
+        const systemPrompt = buildReviewDiffByFileSystemPrompt(today);
         const cappedChunks = chunks.slice(0, MAX_MODEL_CHUNKS);
 
         for (let i = 0; i < cappedChunks.length; i += CONCURRENCY) {
@@ -244,7 +252,7 @@ export async function handleReviewDiffByFile(
         const promises = slice.map(async (chunk) => {
           const chunkLabel = chunk.source ?? chunk.label;
           const userMsg = buildReviewDiffByFileUserMessage(
-            chunk.text, chunkLabel, chunk.truncated, focus,
+            chunk.text, chunkLabel, chunk.truncated, focus, today,
           );
           try {
             const { text: raw, usage } = await client.chat(systemPrompt, userMsg);
@@ -303,7 +311,7 @@ export async function handleReviewDiffByFile(
       omitted_files: meta.omitted.map(o => ({ file: o.source ?? o.label, reason: o.reason })),
       is_authoritative: false,
       analysis_status: meta.input_truncated ? "partial" : "complete" as const,
-      _meta: { provider, model: (config as AppConfig).modelName, tokens_used: totalTokens, prompt_tokens: totalPromptTokens || undefined, completion_tokens: totalCompletionTokens || undefined, input_truncated: meta.input_truncated, fallback_used: false, chunking: meta, analysis_status: meta.input_truncated ? "partial" : "complete" as const, model_attempted: true },
+      _meta: { provider, model: (config as AppConfig).modelName, tokens_used: totalTokens, prompt_tokens: totalPromptTokens || undefined, completion_tokens: totalCompletionTokens || undefined, input_truncated: meta.input_truncated, fallback_used: false, chunking: meta, analysis_status: meta.input_truncated ? "partial" : "complete" as const, ...buildDiagnosticMeta({ analysisMode: "model_analysis", modelUsed: true, modelAttempted: true }) },
     };
 
     const outValidation = validateOutput("aux_review_diff_by_file", output);

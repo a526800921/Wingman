@@ -31,6 +31,12 @@ ADR-0001 模型优先
   │   ├─ overlay 回归修复
   │   ├─ payload / 单批优化
   │   └─ Round 4 模型响应契约恢复
+  ├─ TranslateBar 真实报告回归修复
+  │   ├─ command-output 全绿误标 failure
+  │   ├─ summarize_file Swift fallback 误导参数
+  │   └─ review_diff 当前日期幻觉
+  ├─ MCP 工具消费方反馈闭环（候选）
+  │   └─ aux_report_tool_feedback
   ├─ 前置验证方案
   │   └─ P0 fixtures / 契约 / 调用预算
   └─ Model-first 输出 schema migration
@@ -41,13 +47,14 @@ ADR-0001 模型优先
 ```text
 1. 先写 Round 4 失败 fixture 和模型响应契约测试
 2. 修复 command-output 响应分层校验、失败记账和非零退出恢复
-3. 统一 analysis status 与 migration 语义
-4. 完善共享 model-runtime 和 mock model 测试
-5. 修复 review 工具路径、证据和 fallback 语义
-6. 迁移 summarize_file 大输入与 fallback
-7. 迁移 compress_text 大输入与 fallback
-8. 收缩旧 heuristic 语义代码
-9. 运行真实模型评测与发布前回放
+3. 固定 TranslateBar 真实报告红灯 fixtures，并修复全绿误标 failure、Swift fallback 误导参数、当前日期幻觉
+4. 统一 analysis status 与 migration 语义
+5. 完善共享 model-runtime 和 mock model 测试
+6. 修复 review 工具路径、证据和 fallback 语义
+7. 迁移 summarize_file 大输入与 fallback
+8. 迁移 compress_text 大输入与 fallback
+9. 收缩旧 heuristic 语义代码
+10. 运行真实模型评测与发布前回放
 ```
 
 任何步骤不得跳过对应施工计划中的 Step 0 红灯测试。
@@ -64,6 +71,8 @@ ADR-0001 模型优先
 | `docs/chunk-optimization-regression-fix-plan.md` | 施工计划 | 大部分完成 | 覆盖 replacement → overlay、canonical findings |
 | `docs/command-output-model-payload-plan.md` | 施工计划 | 部分完成 | 覆盖紧凑 payload、单批和 enrichment |
 | `docs/plans/command-output-response-contract-recovery.md` | 施工计划 | **已完成** (2026-06-20) | Round 4 阻断回归；优先于 command-output 后续优化与 parser 收缩 |
+| `docs/plans/wingman-mcp-translatebar-report-reliability.md` | 施工计划 | **已完成** (2026-06-28) | TranslateBar 真实报告回归门禁；修复了 xcodebuild 全绿误标 failure、Swift fallback 误导参数、review diff 日期幻觉三类问题；新增 unified diagnostic fields |
+| `docs/plans/mcp-tool-feedback-loop.md` | 施工计划 | 候选 | 下一期消费方质量反馈闭环；依赖 TranslateBar 回归修复计划中 `_meta.trace_id` / `_meta.tool_name` 口径 |
 | `docs/phase2-tools-validation-plan.md` | 验证战略 | Active | P0 已拆到 `phase2-validation-p0-plan.md` |
 | `docs/phase2-validation-p0-plan.md` | 施工计划 | 已建立基础 | fixtures、expectations、契约和预算测试已存在 |
 | `docs/plans/summarize-file-model-first.md` | 施工计划 | 待实施 | 依赖 shared runtime、migration note；纳入 TranslateBar Swift 报告证据 |

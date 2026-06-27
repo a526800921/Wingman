@@ -151,9 +151,13 @@ function langFromExtension(ext: string): string {
   return map[ext.toLowerCase()] ?? ext.slice(1).toUpperCase();
 }
 
-/** Compute 1-based line number from a match index in text. */
+/** Compute 1-based line number from a match index in text.
+ *  When pos lands on a newline (e.g., from ^ anchor in multiline regex),
+ *  the actual match starts on the following line. */
 function lineNumberOf(text: string, pos: number): number {
-  return text.slice(0, pos).split("\n").length;
+  const line = text.slice(0, pos).split("\n").length;
+  if (pos < text.length && text[pos] === "\n") return line + 1;
+  return line;
 }
 
 /** Count parameters in a function parameter string (simple comma split). */
@@ -187,11 +191,13 @@ function buildRole(
           `\\b${escapeRegex(name)}\\s*\\(([^)]*)\\)`,
         ),
       );
-      const paramCount =
-        paramMatch !== null ? countParams(paramMatch[1]) : 0;
-      const paramLabel =
-        paramCount === 1 ? "1 parameter" : `${paramCount} parameters`;
-      modifiers.push(`function takes ${paramLabel}`);
+      if (paramMatch !== null) {
+        const paramCount = countParams(paramMatch[1]);
+        const paramLabel =
+          paramCount === 1 ? "1 parameter" : `${paramCount} parameters`;
+        modifiers.push(`function takes ${paramLabel}`);
+      }
+      // else: parameter count unknown — don't fabricate "0 parameters"
       break;
     }
     case "class": {

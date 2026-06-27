@@ -1,0 +1,15 @@
+Test session results, xcodebuild
+Platform: iOS Simulator (18A8394), Device: iPhone (16 Pro)
+
+=== TEST SUITE SUMMARY ===
+Executed 5 test suites with 136 tests
+  0 failures (0 unexpected)
+  136 tests passed
+  TEST SUCCEEDED
+
+** TEST SUCCEEDED ** [3.877 sec]
+
+Test session log:
+  /Users/build/Library/Developer/Xcode/DerivedData/AppLogs/Test/Test-App-2026.06.27_12-30-00.xcresult
+
+All tests passed without any issues.
