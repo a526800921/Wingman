@@ -36,11 +36,11 @@ async function singleCallModelReview(
   diff: string,
   focus: string | undefined,
   log: ReturnType<typeof traceLogger>,
-): Promise<DiffFinding[] | null> {
+): Promise<{ findings: DiffFinding[] | null; tokens: number } | null> {
   try {
     const systemPrompt = buildReviewDiffByFileSystemPrompt();
     const userMsg = buildReviewDiffByFileUserMessage(diff, "full-diff", false, focus);
-    const raw = await client.chat(systemPrompt, userMsg);
+    const { text: raw, usage } = await client.chat(systemPrompt, userMsg);
     const jsonStr = extractJsonFromResponse(raw);
     const parsed = JSON.parse(jsonStr);
 
@@ -52,7 +52,7 @@ async function singleCallModelReview(
         }
       }
     }
-    return findings.length > 0 ? findings : null;
+    return { findings: findings.length > 0 ? findings : null, tokens: usage?.total_tokens ?? 0 };
   } catch (err) {
     log.warn("review-diff-by-file: single-call model review failed", {
       error: err instanceof Error ? err.message : String(err),
@@ -204,6 +204,7 @@ export async function handleReviewDiffByFile(
     const provider = (config as AppConfig).modelProvider ?? process.env.AUX_MODEL_PROVIDER ?? "remote";
     const modelAvailable = hasModelConfig() && hasApiKey(config);
     let allFindings: DiffFinding[] = [];
+    let totalTokens = 0;
 
     if (modelAvailable && chunks.length > 0) {
       const client = new ChatClient(config as AppConfig);
@@ -218,7 +219,8 @@ export async function handleReviewDiffByFile(
       if (originalDiff.length <= SINGLE_CALL_BUDGET && chunks.length <= 5) {
         const result = await singleCallModelReview(client, originalDiff, focus, log);
         if (result) {
-          allFindings = result;
+          allFindings = result.findings ?? [];
+          totalTokens += result.tokens;
           log.info("review-diff-by-file: single-call model path done", { findings: allFindings.length });
         }
       }
@@ -241,7 +243,7 @@ export async function handleReviewDiffByFile(
             chunk.text, chunkLabel, chunk.truncated, focus,
           );
           try {
-            const raw = await client.chat(systemPrompt, userMsg);
+            const { text: raw, usage } = await client.chat(systemPrompt, userMsg);
             const jsonStr = extractJsonFromResponse(raw);
             const parsed = JSON.parse(jsonStr);
 
@@ -256,6 +258,7 @@ export async function handleReviewDiffByFile(
               // Legacy single-object format
               allFindings.push(findingsFromModel(parsed, chunkLabel));
             }
+            totalTokens += usage?.total_tokens ?? 0;
             succeededChunks++;
           } catch (err) {
             failedChunks++;
@@ -294,7 +297,7 @@ export async function handleReviewDiffByFile(
       omitted_files: meta.omitted.map(o => ({ file: o.source ?? o.label, reason: o.reason })),
       is_authoritative: false,
       analysis_status: meta.input_truncated ? "partial" : "complete" as const,
-      _meta: { provider, model: (config as AppConfig).modelName, input_truncated: meta.input_truncated, fallback_used: false, chunking: meta, analysis_status: meta.input_truncated ? "partial" : "complete" as const, model_attempted: true },
+      _meta: { provider, model: (config as AppConfig).modelName, tokens_used: totalTokens, input_truncated: meta.input_truncated, fallback_used: false, chunking: meta, analysis_status: meta.input_truncated ? "partial" : "complete" as const, model_attempted: true },
     };
 
     const outValidation = validateOutput("aux_review_diff_by_file", output);

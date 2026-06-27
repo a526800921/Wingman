@@ -283,7 +283,7 @@ async function modelReview(
   const systemPrompt = buildReviewDiffSystemPrompt();
   const userMessage = buildReviewDiffUserMessage(diff, focus);
 
-  const rawResponse = await client.chat(systemPrompt, userMessage);
+  const { text: rawResponse, usage } = await client.chat(systemPrompt, userMessage);
 
   const jsonStr = extractJsonFromResponse(rawResponse);
 
@@ -311,6 +311,7 @@ async function modelReview(
     _meta: {
       provider,
       model: config.modelName,
+      tokens_used: usage?.total_tokens ?? 0,
       input_truncated: inputTruncated,
       fallback_used: false,
       analysis_status: inputTruncated ? "partial" : "complete",

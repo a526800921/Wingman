@@ -15,7 +15,7 @@
 
 import { after, before, describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { ChatClient, ChatClientError } from "../src/chat-client.js";
+import { ChatClient, ChatClientError, ChatResult } from "../src/chat-client.js";
 import type { AppConfig } from "../src/config.js";
 import { handleCompressCommandOutput } from "../src/tools/compress-command-output.js";
 
@@ -67,13 +67,13 @@ class MockChatClient extends ChatClient {
     return true;
   }
 
-  async chat(systemPrompt: string, userMessage: string): Promise<string> {
+  async chat(systemPrompt: string, userMessage: string): Promise<ChatResult> {
     this.lastSystemPrompt = systemPrompt;
     this.lastUserMessage = userMessage;
     if (this._callCount >= this._responses.length) {
       throw new ChatClientError("no more mock responses configured", "http");
     }
-    return this._responses[this._callCount++];
+    return { text: this._responses[this._callCount++], usage: undefined };
   }
 
   get callCount(): number {
@@ -84,7 +84,7 @@ class MockChatClient extends ChatClient {
   static transportFailure(): ChatClient {
     const mock = new MockChatClient([]);
     // Override chat to always throw
-    mock.chat = async () => {
+    mock.chat = async (): Promise<ChatResult> => {
       throw new ChatClientError("connection refused", "http");
     };
     return mock;

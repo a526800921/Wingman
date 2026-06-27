@@ -207,13 +207,15 @@ async function modelFirstPath(
   let modelResponseStatus: ModelResponseStatus = "transport_failure";
   let modelFailureReason: string | undefined;
   let modelCallAttempts = 0;
+  let totalTokens = 0;
 
   if (output.length <= SINGLE_CALL_CHAR_BUDGET) {
     // ── Small input: single model call ────────────────────
     modelCallAttempts = 1;
 
     try {
-      const raw = await client.chat(systemPrompt, userMsg);
+      const { text: raw, usage } = await client.chat(systemPrompt, userMsg);
+      totalTokens += usage?.total_tokens ?? 0;
       const decoded = decodeModelFirstResponse(raw);
 
       modelResponseStatus = decoded.status;
@@ -267,7 +269,8 @@ async function modelFirstPath(
         "Do NOT add extra fields beyond the schema.";
 
       try {
-        const repairRaw = await client.chat(repairSystemPrompt, userMsg);
+        const { text: repairRaw, usage: repairUsage } = await client.chat(repairSystemPrompt, userMsg);
+        totalTokens += repairUsage?.total_tokens ?? 0;
         const repairDecoded = decodeModelFirstResponse(repairRaw);
 
         modelResponseStatus = repairDecoded.status;
@@ -383,6 +386,7 @@ async function modelFirstPath(
           _meta: {
             provider,
             model: modelName,
+            tokens_used: totalTokens,
             input_truncated: inputTruncated,
             fallback_used: true,
             chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "model-first-fallback" },
@@ -458,6 +462,7 @@ async function modelFirstPath(
     _meta: {
       provider,
       model: modelName,
+      tokens_used: totalTokens,
       input_truncated: inputTruncated,
       fallback_used: fallbackUsed,
       chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "model-first" },
@@ -672,13 +677,15 @@ async function runTscBatchModelPath(
   let modelFindingsReceived = 0;
   let enhancementsApplied = 0;
   let unknownIds = 0;
+  let totalTokens = 0;
   const seenOverlayIds = new Set<string>();
 
   for (const batch of cappedBatches) {
     try {
       const diagnostics = JSON.parse(batch.text);
       const userMsg = buildCompressCommandOutputBatchUserMessage(diagnostics, command, exitCode, focus);
-      const raw = await client.chat(systemPrompt, userMsg);
+      const { text: raw, usage } = await client.chat(systemPrompt, userMsg);
+      totalTokens += usage?.total_tokens ?? 0;
       const jsonStr = extractJsonFromResponse(raw);
       const parsed = JSON.parse(jsonStr);
 
@@ -743,6 +750,7 @@ async function runChunkModelPath(
 
   let succeeded = 0;
   const collected: CommandOutputFinding[] = [];
+  let totalTokens = 0;
   const CONCURRENCY = 2;
 
   for (let i = 0; i < cappedChunks.length; i += CONCURRENCY) {
@@ -750,7 +758,8 @@ async function runChunkModelPath(
     const promises = slice.map(async (chunk) => {
       try {
         const userMsg = buildCompressCommandOutputUserMessage(chunk.text, command, exitCode, focus);
-        const raw = await client.chat(systemPrompt, userMsg);
+        const { text: raw, usage } = await client.chat(systemPrompt, userMsg);
+        totalTokens += usage?.total_tokens ?? 0;
         const jsonStr = extractJsonFromResponse(raw);
         const parsed = JSON.parse(jsonStr);
 

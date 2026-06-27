@@ -408,10 +408,15 @@ interface ChatResponseChoice {
   finish_reason?: string;
 }
 
-interface ChatResponseUsage {
+export interface ChatResponseUsage {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+}
+
+export interface ChatResult {
+  text: string;
+  usage?: ChatResponseUsage;
 }
 
 interface ChatResponseBody {
@@ -453,7 +458,7 @@ export class ChatClient {
    *   - Retry on transient errors with exponential backoff
    *   - API key never logged
    */
-  async chat(systemPrompt: string, userMessage: string): Promise<string> {
+  async chat(systemPrompt: string, userMessage: string): Promise<ChatResult> {
     // -------- build URL --------
     const base = this.config.modelBaseUrl.replace(/\/+$/, "");
     const rawUrl = `${base}/chat/completions`;
@@ -542,7 +547,7 @@ export class ChatClient {
     url: string,
     headers: Record<string, string>,
     body: string,
-  ): Promise<string> {
+  ): Promise<ChatResult> {
     // --- setup timeout ---
     let timedOut = false;
     const controller = new AbortController();
@@ -669,7 +674,7 @@ export class ChatClient {
         : undefined,
     });
 
-    return message.content;
+    return { text: message.content, usage };
   }
 }
 

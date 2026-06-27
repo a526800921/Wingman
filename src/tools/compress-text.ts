@@ -133,7 +133,7 @@ async function tryModelCompression(
     );
 
     // Call model
-    const response = await client.chat(systemPrompt, userMessage);
+    const { text: response, usage } = await client.chat(systemPrompt, userMessage);
 
     // Extract JSON from the raw response (handles markdown fences, etc.)
     const jsonStr = extractJsonFromResponse(response);
@@ -167,7 +167,7 @@ async function tryModelCompression(
     (parsed as Record<string, unknown>)._meta = {
       provider,
       model: appConfig.modelName,
-      tokens_used: 0,
+      tokens_used: usage?.total_tokens ?? 0,
       input_truncated: text.length < data.text.length,
       fallback_used: false,
       analysis_status: "complete" as const,

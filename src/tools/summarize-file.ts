@@ -215,7 +215,7 @@ async function tryModelSummarization(
 
   try {
     // Step 5c: call the model
-    const rawResponse = await client.chat(systemPrompt, userMessage);
+    const { text: rawResponse, usage } = await client.chat(systemPrompt, userMessage);
 
     // Step 5d: extract JSON from the response
     const jsonString = extractJsonFromResponse(rawResponse);
@@ -239,6 +239,7 @@ async function tryModelSummarization(
       _meta: {
         provider,
         model: config.modelName,
+        tokens_used: usage?.total_tokens ?? 0,
         input_truncated: inputTruncated,
         fallback_used: false,
       },
