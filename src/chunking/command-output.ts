@@ -29,7 +29,11 @@ export function detectOutputKind(output: string): OutputKind {
   if (/error TS\d+:/m.test(output)) return "tsc_error";
   if (/^\s+\d+:\d+\s+error\s+/m.test(output) || /✖\s+\d+ problems?/m.test(output)) return "eslint_output";
   if (/^\s*(FAIL|✗|✘|×)\s+/m.test(output) || /^\s*FAILED\s/m.test(output) || /Tests?:.*failed/m.test(output)) return "test_output";
+  // Test success patterns (all-green test runs — xcodebuild, Jest, etc.)
+  if (/TEST SUCCEEDED/i.test(output) || /\bAll tests passed\b/i.test(output) || /\b\d+ tests passed\b/i.test(output)) return "test_output";
   if (/^\s*(ERROR|Error) in/m.test(output) || /BUILD FAILED|Compilation failed|make\[.*\]:.*Error/m.test(output)) return "build_output";
+  // Build success patterns
+  if (/BUILD SUCCEEDED/i.test(output) || /Build succeeded/i.test(output)) return "build_output";
   if (/\n\s+at\s+.+\(.+:\d+:\d+\)/.test(output)) return "stack_trace";
   return "generic_log";
 }

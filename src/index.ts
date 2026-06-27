@@ -393,9 +393,9 @@ const COMPRESS_COMMAND_OUTPUT_OUTPUT_SCHEMA = {
     summary: { type: "string" },
     analysis_status: { type: "string", enum: ["complete", "partial", "incomplete"] },
     first_failure: {
-      type: "object",
+      type: ["object", "null"],
       properties: {
-        kind: { type: "string", enum: ["test_failure", "type_error", "lint_error", "build_error", "runtime_exception", "warning", "info", "unknown"] },
+        kind: { type: "string", enum: ["test_failure", "type_error", "lint_error", "build_error", "runtime_exception", "warning", "info", "unknown", "test_success", "build_success"] },
         message: { type: "string" },
         error_code: { type: "string" },
         rule_id: { type: "string" },
@@ -412,7 +412,7 @@ const COMPRESS_COMMAND_OUTPUT_OUTPUT_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          kind: { type: "string", enum: ["test_failure", "type_error", "lint_error", "build_error", "runtime_exception", "warning", "info", "unknown"] },
+          kind: { type: "string", enum: ["test_failure", "type_error", "lint_error", "build_error", "runtime_exception", "warning", "info", "unknown", "test_success", "build_success"] },
           message: { type: "string" },
           error_code: { type: "string" },
           rule_id: { type: "string" },
@@ -447,7 +447,7 @@ const COMPRESS_COMMAND_OUTPUT_OUTPUT_SCHEMA = {
     },
     is_authoritative: { type: "boolean", const: false },
     primary_actionable_failure: {
-      type: "object",
+      type: ["object", "null"],
       properties: {
         kind: { type: "string" }, message: { type: "string" },
         file: { type: "string" }, line: { type: "integer" },
@@ -492,6 +492,10 @@ const COMPRESS_COMMAND_OUTPUT_OUTPUT_SCHEMA = {
         detector_hint: { type: "string" },
         model_detected_kind: { type: "string" },
         kind_mismatch: { type: "boolean" },
+        model_used: { type: "boolean" },
+        analysis_mode: { type: "string", enum: ["model_analysis", "heuristic_fallback", "mixed", "unsupported"] },
+        confidence: { type: "string", enum: ["low", "medium", "high"] },
+        limitations: { type: "array", items: { type: "string" } },
       },
     },
   },

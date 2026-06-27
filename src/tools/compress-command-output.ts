@@ -463,8 +463,8 @@ async function modelFirstPath(
   const outputData: CompressCommandOutputOutput = {
     summary,
     analysis_status: analysisStatus,
-    first_failure: stripInternalFields(derived.first_failure),
-    primary_actionable_failure: stripInternalFields(derived.primary_actionable_failure),
+    first_failure: stripInternalFields(derived.first_failure) ?? null,
+    primary_actionable_failure: stripInternalFields(derived.primary_actionable_failure) ?? null,
     findings: stripInternalFieldsFromArray(dedupedFindings),
     repeated_errors: derived.repeated_errors,
     suggested_source_checks: derived.suggested_source_checks,
@@ -580,8 +580,8 @@ async function autoPath(
   const outputData: CompressCommandOutputOutput = {
     summary: derived.summary,
     analysis_status: analysisStatus,
-    first_failure: stripInternalFields(derived.first_failure),
-    primary_actionable_failure: stripInternalFields(derived.primary_actionable_failure),
+    first_failure: stripInternalFields(derived.first_failure) ?? null,
+    primary_actionable_failure: stripInternalFields(derived.primary_actionable_failure) ?? null,
     findings: outputFindings,
     repeated_errors: derived.repeated_errors,
     suggested_source_checks: derived.suggested_source_checks,
@@ -633,8 +633,8 @@ function fallbackOnlyResult(
   const outputData: CompressCommandOutputOutput = {
     summary: derived.summary,
     analysis_status: analysisStatus,
-    first_failure: stripInternalFields(derived.first_failure),
-    primary_actionable_failure: stripInternalFields(derived.primary_actionable_failure),
+    first_failure: stripInternalFields(derived.first_failure) ?? null,
+    primary_actionable_failure: stripInternalFields(derived.primary_actionable_failure) ?? null,
     findings: stripInternalFieldsFromArray(fb.findings),
     repeated_errors: derived.repeated_errors,
     suggested_source_checks: derived.suggested_source_checks,
@@ -859,15 +859,17 @@ function deriveFromFindings(
   const sortedByIndex = [...findings].sort(
     (a, b) => (a.first_seen_index ?? 0) - (b.first_seen_index ?? 0),
   );
+  const isFailureFinding = (f: CommandOutputFinding): boolean =>
+    f.kind !== "warning" && f.kind !== "info" && !SUCCESS_KINDS.has(f.kind);
   const firstFailure = sortedByIndex.find(f =>
-    f.kind !== "warning" && f.kind !== "info" && !SUCCESS_KINDS.has(f.kind),
+    isFailureFinding(f),
   );
 
   const sourceKindPriority: Record<string, number> = {
     project: 0, test: 1, generated: 2, dependency: 3, unknown: 4,
   };
   const primaryActionable = [...findings]
-    .filter(f => f.kind !== "warning" && f.kind !== "info" && !SUCCESS_KINDS.has(f.kind))
+    .filter(isFailureFinding)
     .sort((a, b) => {
       const skA = sourceKindPriority[classifySourceKindFromFile(a.file)] ?? 99;
       const skB = sourceKindPriority[classifySourceKindFromFile(b.file)] ?? 99;
@@ -920,7 +922,7 @@ function deriveFromFindings(
 
   const suggested_next_commands: string[] = [];
   if (outputKind === "tsc_error") suggested_next_commands.push("npx tsc --noEmit");
-  if (outputKind === "test_output") suggested_next_commands.push("Run the specific failing test file with verbose output");
+  if (outputKind === "test_output" && firstFailure) suggested_next_commands.push("Run the specific failing test file with verbose output");
   if (outputKind === "eslint_output") suggested_next_commands.push("npx eslint <files>");
 
   const discarded: string[] = [];
@@ -928,13 +930,14 @@ function deriveFromFindings(
     discarded.push(`Output truncated from ${outputLength} to ${maxChars} chars`);
   }
 
-  const errorCount = findings.filter(f => f.kind !== "warning" && f.kind !== "info").length;
+  const errorCount = findings.filter(isFailureFinding).length;
+  const successCount = findings.filter(f => SUCCESS_KINDS.has(f.kind)).length;
   const commandLabel = command ? `Command \`${command}\` ` : "";
   const exitLabel = exitCode !== undefined ? ` (exit code: ${exitCode})` : "";
   const summary =
     `${commandLabel}${exitLabel}: Detected "${outputKind}". ` +
     `Parsed ${findings.length} diagnostics, retained ${findings.length} findings. ` +
-    `${errorCount} error(s). ` +
+    (successCount > 0 && errorCount === 0 ? `${successCount} success signal(s). ` : `${errorCount} error(s). `) +
     (repeated_errors.length > 0 ? `${repeated_errors.length} repeated error pattern(s). ` : "") +
     (firstFailure ? `First failure: ${firstFailure.file}:${firstFailure.line} ${firstFailure.error_code ?? ""}. ` : "") +
     (primaryActionable ? `Primary actionable: ${primaryActionable.file}:${primaryActionable.line}.` : "");

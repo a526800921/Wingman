@@ -150,6 +150,39 @@ function sanitizeEvidence(text: string): string {
     .replace(/(https?:\/\/)[^:@]+:[^@]+@/g, "$1***:***@");
 }
 
+// ── Success signal detection ──────────────────────────────
+
+interface SuccessSignal {
+  kind: "test_success" | "build_success";
+  message: string;
+  evidence: string;
+}
+
+const SUCCESS_PATTERNS: Array<{ regex: RegExp; kind: SuccessSignal["kind"]; message: string }> = [
+  // Test success signals (ordered by specificity)
+  { regex: /\*\*\s*TEST SUCCEEDED\s*\*\*/i, kind: "test_success", message: "All tests passed" },
+  { regex: /TEST SUCCEEDED/i, kind: "test_success", message: "All tests passed" },
+  { regex: /\b0\s+failures?\b.*\btests?\s+passed\b/i, kind: "test_success", message: "All tests passed, 0 failures" },
+  { regex: /\bAll\s+tests?\s+passed\b/i, kind: "test_success", message: "All tests passed" },
+  // Build success signals
+  { regex: /BUILD SUCCEEDED/i, kind: "build_success", message: "Build completed successfully" },
+  { regex: /Build succeeded/i, kind: "build_success", message: "Build completed successfully" },
+];
+
+function detectSuccessSignal(output: string): SuccessSignal | null {
+  for (const pat of SUCCESS_PATTERNS) {
+    const match = pat.regex.exec(output);
+    if (match) {
+      return {
+        kind: pat.kind,
+        message: pat.message,
+        evidence: match[0].trim(),
+      };
+    }
+  }
+  return null;
+}
+
 function mergeRepeatedErrors(findings: CommandOutputFinding[]): CompressCommandOutputFallbackResult["repeated_errors"] {
   const counts = new Map<string, { count: number; examples: string[] }>();
   for (const f of findings) {
@@ -207,10 +240,10 @@ export function compressCommandOutputFallback(
 ): CompressCommandOutputFallbackResult {
   logger.debug("compressCommandOutputFallback called", { command, outputLen: output.length, exitCode, maxChars });
 
-  const kind = detectOutputKind(output);
+  let detectedKind = detectOutputKind(output);
   let findings: CommandOutputFinding[] = [];
 
-  switch (kind) {
+  switch (detectedKind) {
     case "tsc_error": findings = extractTscErrors(output); break;
     case "eslint_output": findings = extractEslintErrors(output); break;
     case "test_output": findings = extractTestFailures(output); break;
@@ -229,30 +262,54 @@ export function compressCommandOutputFallback(
   }
 
   deduped.sort((a, b) => (a.first_seen_index ?? 0) - (b.first_seen_index ?? 0));
+
+  // ── Success signal detection ────────────────────────────
+  // If no error/failure findings were extracted, check for strong success signals
+  const nonInfoFindings = deduped.filter(f =>
+    f.kind !== "warning" && f.kind !== "info" && f.kind !== "unknown",
+  );
+  if (nonInfoFindings.length === 0) {
+    const successSignal = detectSuccessSignal(output);
+    if (successSignal) {
+      deduped.push({
+        kind: successSignal.kind,
+        message: successSignal.message,
+        evidence: successSignal.evidence,
+        confidence: "high",
+        first_seen_index: 0,
+      });
+      // Override detected kind to match the success signal type
+      if (successSignal.kind === "test_success") detectedKind = "test_output";
+      else if (successSignal.kind === "build_success") detectedKind = "build_output";
+    }
+  }
+
   const firstFailure = deduped.find(f =>
     f.kind === "test_failure" || f.kind === "type_error" || f.kind === "build_error" || f.kind === "runtime_exception"
   );
 
   const repeatedErrors = mergeRepeatedErrors(deduped);
 
-  const errorCount = deduped.filter(f => f.kind !== "warning" && f.kind !== "info").length;
+  const errorCount = deduped.filter(f => f.kind !== "warning" && f.kind !== "info" && f.kind !== "test_success" && f.kind !== "build_success").length;
   const warnCount = deduped.filter(f => f.kind === "warning").length;
+  const successCount = deduped.filter(f => f.kind === "test_success" || f.kind === "build_success").length;
   const commandLabel = command ? `Command \`${command}\` ` : "";
   const exitLabel = exitCode !== undefined ? ` (exit code: ${exitCode})` : "";
   const summary =
-    `${commandLabel}${exitLabel}: Detected "${kind}". ` +
+    `${commandLabel}${exitLabel}: Detected "${detectedKind}". ` +
     `Parsed ${deduped.length} diagnostics, retained ${deduped.length} findings. ` +
-    `${errorCount} error(s), ${warnCount} warning(s). ` +
+    (successCount > 0 ? `${successCount} success signal(s). ` : `${errorCount} error(s), ${warnCount} warning(s). `) +
     (firstFailure ? `First failure: ${firstFailure.message}. ` : "") +
     (repeatedErrors.length > 0 ? `${repeatedErrors.length} repeated error pattern(s).` : "");
 
   // Sort findings for suggestions: project source before generated/dependency files
   const sourceKindPriority: Record<string, number> = { project: 0, test: 1, generated: 2, dependency: 3, unknown: 4 };
+  const successKinds = new Set(["test_success", "build_success"]);
   const computeSuggestionPriority = (f: CommandOutputFinding): number => {
     const sk = classifySourceKind(f.file);
     const skPriority = sourceKindPriority[sk] ?? 99;
     // Error kinds before warnings
-    const isError = f.kind !== "warning" && f.kind !== "info" ? 0 : 1;
+    const isError = f.kind !== "warning" && f.kind !== "info" && !successKinds.has(f.kind) ? 0 : 1;
     return skPriority * 10 + isError;
   };
   const sortForSuggestions = [...deduped].sort((a, b) => {
@@ -273,15 +330,15 @@ export function compressCommandOutputFallback(
   }
 
   const suggestedCommands: string[] = [];
-  if (kind === "tsc_error") suggestedCommands.push("npx tsc --noEmit");
-  if (kind === "test_output") suggestedCommands.push("Run the specific failing test file with verbose output");
-  if (kind === "eslint_output") suggestedCommands.push("npx eslint <files>");
+  if (detectedKind === "tsc_error") suggestedCommands.push("npx tsc --noEmit");
+  if (detectedKind === "test_output" && firstFailure) suggestedCommands.push("Run the specific failing test file with verbose output");
+  if (detectedKind === "eslint_output") suggestedCommands.push("npx eslint <files>");
 
   const discarded: string[] = ["Full output not semantically analyzed — pattern matching only"];
   if (output.length > maxChars) discarded.push(`Output truncated from ${output.length} to ${maxChars} chars`);
 
   logger.debug("compressCommandOutputFallback result", {
-    kind,
+    kind: detectedKind,
     findingCount: deduped.length,
     repeatedErrorCount: repeatedErrors.length,
     hasFirstFailure: !!firstFailure,

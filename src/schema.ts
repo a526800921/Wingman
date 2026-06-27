@@ -356,8 +356,8 @@ export const CompressCommandOutputOutput = authoritativeMarker.merge(
   z.strictObject({
     summary: z.string(),
     analysis_status: AnalysisStatusSchema,
-    first_failure: CommandOutputFindingSchema.optional(),
-    primary_actionable_failure: CommandOutputFindingSchema.optional(),
+    first_failure: CommandOutputFindingSchema.nullable().optional(),
+    primary_actionable_failure: CommandOutputFindingSchema.nullable().optional(),
     findings: z.array(CommandOutputFindingSchema),
     repeated_errors: z.array(RepeatedErrorSchema),
     suggested_source_checks: z.array(z.string()),

@@ -4,6 +4,17 @@
 
 本说明适用于 Wingman 模型型工具逐步新增的状态、heuristic signal 和 actionable failure 字段。
 
+## 2026-06-28: TranslateBar 报告回归修复
+
+- `CommandOutputFinding.kind` 新增 `test_success` / `build_success`。
+- 成功场景 `first_failure` / `primary_actionable_failure` 为 `null`。
+- `_meta` 新增 `model_used`、`analysis_mode`、`confidence`、`limitations`。
+- 消费方应先判断 success kind，再读取 failure 字段。
+
+兼容策略：
+
+旧调用方忽略新增 kind 时，至少不能把 success kind 当 failure。
+
 ## 2026-06-20: 模型响应契约恢复新增字段
 
 `aux_compress_command_output` 的 `_meta` 新增以下 optional 字段：

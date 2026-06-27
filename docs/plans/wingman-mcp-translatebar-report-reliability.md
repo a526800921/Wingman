@@ -62,18 +62,40 @@
 
 | Symbol | 文件 | 预期修改 | GitNexus risk |
 |---|---|---|---|
-| `handleCompressCommandOutput` | `src/tools/compress-command-output.ts` | 成功/失败 kind 归一化与输出组装 | 待运行 |
-| `modelFirstPath` | `src/tools/compress-command-output.ts` | 模型分类结果校验和 success kind 映射 | 待运行 |
-| `fallbackOnlyResult` | `src/tools/compress-command-output.ts` | fallback 成功场景不构造 failure schema | 待运行 |
-| `handleSummarizeFile` | `src/tools/summarize-file.ts` | 输出 fallback 诊断字段 | 待运行 |
-| `tryModelSummarization` | `src/tools/summarize-file.ts` | 模型路径与 fallback 路径状态统一 | 待运行 |
-| `buildFallbackResult` | `src/tools/summarize-file.ts` | 非 TSJS 参数未知语义和低置信度标记 | 待运行 |
-| `summarizeFileFallback` | `src/fallback/summarize-file.ts` | Swift 函数参数不再错误确定为 0 | 待运行 |
-| `handleReviewDiff` | `src/tools/review-diff.ts` | prompt 当前日期注入和日期 finding 校验 | 待运行 |
-| `handleReviewDiffByFile` | `src/tools/review-diff-by-file.ts` | 与 review_diff 保持日期上下文一致 | 待运行 |
-| `reviewDiffFallback` | `src/fallback/review-diff.ts` | 日期类 heuristic 降级为 signal | 待运行 |
-| `reviewDiffByFileFallback` | `src/fallback/review-diff-by-file.ts` | 日期类 heuristic 降级为 signal | 待运行 |
-| `CompressCommandOutputOutput` | `src/schema.ts` | 新增 success kind 与 optional 诊断字段 | 待运行 |
+| `handleCompressCommandOutput` | `src/tools/compress-command-output.ts` | 成功/失败 kind 归一化与输出组装 | LOW — 仅组装逻辑变更 |
+| `modelFirstPath` | `src/tools/compress-command-output.ts` | 模型分类结果校验和 success kind 映射 | LOW — 内部函数，4 个调用方均在 compress-command-output.ts |
+| `fallbackOnlyResult` | `src/tools/compress-command-output.ts` | fallback 成功场景不构造 failure schema | LOW — 内部函数，仅被 handleImpl 调用 |
+| `compressCommandOutputFallback` | `src/fallback/compress-command-output.ts` | 成功信号检测 (detectSuccessSignal) | **HIGH** — 4 direct callers, 3 affected processes, 局限在 compress_command_output 工具内 |
+| `detectOutputKind` | `src/chunking/command-output.ts` | 识别 test/build 成功模式 | LOW — 仅被 handler 内部使用 |
+| `handleSummarizeFile` | `src/tools/summarize-file.ts` | 输出 fallback 诊断字段 | LOW — 字段新增，向后兼容 |
+| `tryModelSummarization` | `src/tools/summarize-file.ts` | 模型路径与 fallback 路径状态统一 | LOW — 内部函数 |
+| `buildFallbackResult` | `src/tools/summarize-file.ts` | 非 TSJS 参数未知语义和低置信度标记 | LOW — 内部函数 |
+| `summarizeFileFallback` | `src/fallback/summarize-file.ts` | Swift 函数参数不再错误确定为 0 | LOW — 仅对非 TS/JS 文件调整参数计数 |
+| `handleReviewDiff` | `src/tools/review-diff.ts` | prompt 当前日期注入和日期 finding 校验 | LOW — prompt 构建变更 |
+| `handleReviewDiffByFile` | `src/tools/review-diff-by-file.ts` | 与 review_diff 保持日期上下文一致 | LOW — prompt 构建变更 |
+| `reviewDiffFallback` | `src/fallback/review-diff.ts` | 日期类 heuristic 降级为 signal | LOW — 仅内部逻辑调整 |
+| `reviewDiffByFileFallback` | `src/fallback/review-diff-by-file.ts` | 日期类 heuristic 降级为 signal | LOW — 仅内部逻辑调整 |
+| `CompressCommandOutputOutput` | `src/schema.ts` | 新增 success kind 与 optional 诊断字段 | LOW — Schema 扩展，向后兼容 |
+
+### 2026-06-28 验收补齐 detect_changes
+
+```text
+detect_changes(scope: "unstaged") — 验收补齐补丁:
+  risk_level: high
+  changed_count: 13
+  affected_count: 12
+  changed_files: 8
+```
+
+影响范围（全部局限在 `aux_compress_command_output` 工具边界内）：
+- `compressCommandOutputFallback` (HIGH): 4 个直接调用方均在 `compress-command-output.ts` 内；3 个受影响 processes 均为 handler 内部流程。risk=HIGH 来自该函数的中心性，但变更语义是纯增量的 — 仅对全新 success format 产生新行为，已有错误输出路径不变。
+- `detectOutputKind`: 新增 test/build 成功匹配模式 (TEST SUCCEEDED / BUILD SUCCEEDED)，不改变已有格式检测。
+- `deriveFromFindings`: success kind 不再计入 error count，且没有真实 failure 时不再建议运行 failing test。
+- Schema: `CompressCommandOutputOutput.first_failure` / `primary_actionable_failure` 支持 `null`（向后兼容，旧调用方忽略 null 不受影响）。
+- `src/index.ts` MCP output schema 同步新增 `test_success`/`build_success` kind 以及 `model_used`/`analysis_mode`/`confidence`/`limitations` `_meta` 字段。
+- 测试 assertion 从"允许 first_failure.kind=test_success"修正为"first_failure 固定为 null 且 findings[0].kind=test_success"。
+
+结论：风险可控，所有变更局限在单个工具的语义增强，对已有错误检测无影响。
 
 ## 5. Step 0：先建立红灯测试
 

@@ -62,7 +62,7 @@ describe("RED: compress_command_output — success kind & first_failure", () => 
     delete process.env.AUX_WORKSPACE_ROOT;
   });
 
-  it("RED: CommandOutputFindingSchema rejects kind=test_success", async () => {
+  it("GREEN: CommandOutputFindingSchema accepts kind=test_success", async () => {
     // The current kind enum is:
     // ["test_failure", "type_error", "lint_error", "build_error",
     //  "runtime_exception", "warning", "info", "unknown"]
@@ -88,7 +88,7 @@ describe("RED: compress_command_output — success kind & first_failure", () => 
     );
   });
 
-  it("RED: CommandOutputFindingSchema rejects kind=build_success", async () => {
+  it("GREEN: CommandOutputFindingSchema accepts kind=build_success", async () => {
     const { CommandOutputFindingSchema } = await import("../src/schema.js");
 
     const validFinding = {
@@ -108,43 +108,53 @@ describe("RED: compress_command_output — success kind & first_failure", () => 
     );
   });
 
-  it("RED: CompressCommandOutputOutput schema rejects first_failure.kind=test_success", async () => {
-    // The output schema's first_failure is a CommandOutputFinding, so it should
-    // also reject success kinds until the fix is in place.
+  it("GREEN: xcodebuild all-green fixture produces test_success finding with null first_failure", async () => {
+    // Run the handler directly against the xcodebuild success fixture.
+    // Per plan: on success, findings[0].kind === "test_success",
+    // first_failure === null, primary_actionable_failure === null,
+    // and detector_hint should NOT be "generic_log".
+    const { handleCompressCommandOutput } = await import(
+      "../src/tools/compress-command-output.js"
+    );
     const { validateOutput } = await import("../src/schema.js");
 
-    const outputData = {
-      summary: "All tests passed",
-      analysis_status: "complete",
-      first_failure: {
-        kind: "test_success",
-        message: "Tests passed",
-        evidence: "OK",
-        confidence: "high",
-      },
-      primary_actionable_failure: undefined,
-      findings: [],
-      repeated_errors: [],
-      suggested_source_checks: [],
-      suggested_next_commands: [],
-      discarded_or_low_confidence: [],
-      is_authoritative: false,
-      _meta: {
-        model: "test",
-        input_truncated: false,
-        fallback_used: false,
-        chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: false, chunking_strategy: "test" },
-      },
-    };
+    const fixturePath = join(FIXTURES_DIR, "command-output", "xcodebuild-success-136-tests.txt");
+    const output = readFileSync(fixturePath, "utf-8");
 
-    const result = validateOutput("aux_compress_command_output", outputData);
-
-    // GREEN: schema now accepts test_success kind in output
-    assert.ok(
-      result.ok,
-      `GREEN: output with first_failure.kind=test_success should be accepted. ` +
-      `Error: ${!result.ok ? result.error : "OK"}`,
+    const result = await handleCompressCommandOutput(
+      {
+        command: "xcodebuild test",
+        output,
+        exit_code: 0,
+        analysis_mode: "deterministic_only",
+      },
+      { workspaceRoot: TMP_DIR },
     );
+
+    const data = JSON.parse(result.content[0].text as string);
+
+    // Success findings should be present
+    assert.ok(data.findings.length > 0, "Should have at least one finding");
+    assert.equal(data.findings[0].kind, "test_success");
+
+    // first_failure and primary_actionable_failure must be null on success
+    assert.equal(data.first_failure, null);
+    assert.equal(data.primary_actionable_failure, null);
+
+    // Should NOT be generic_log
+    assert.notEqual(data._meta.detector_hint, "generic_log");
+
+    assert.match(data.summary, /success signal\(s\)/);
+    assert.doesNotMatch(data.summary, /\berror\(s\)/);
+    assert.ok(
+      !data.suggested_next_commands.some((command: string) => /failing test/i.test(command)),
+      "Success output should not suggest rerunning a failing test",
+    );
+
+    // Schema validation should pass
+    const validated = validateOutput("aux_compress_command_output", data);
+    assert.equal(validated.ok, true,
+      `Output validation failed: ${!validated.ok ? validated.error : "OK"}`);
   });
 });
 
