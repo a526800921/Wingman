@@ -41,6 +41,7 @@ export interface AppConfig {
   modelProvider: string; // "remote" | "local", from AUX_MODEL_PROVIDER
   modelTimeoutMs: number;
   modelAllowedHosts: string[];
+  modelDisableThinking: boolean;
   allowInsecureLocalHttp: boolean;
   workspaceRoot: string;
 }
@@ -69,6 +70,8 @@ export function loadConfig(): AppConfig {
   const modelAllowedHosts = process.env.AUX_MODEL_ALLOWED_HOSTS
     ? process.env.AUX_MODEL_ALLOWED_HOSTS.split(",").map((h) => h.trim()).filter(Boolean)
     : [];
+  const modelDisableThinking =
+    process.env.AUX_MODEL_DISABLE_THINKING === "true";
   const allowInsecureLocalHttp =
     process.env.AUX_ALLOW_INSECURE_LOCAL_HTTP === "true";
   const workspaceRoot =
@@ -80,6 +83,7 @@ export function loadConfig(): AppConfig {
     modelProvider,
     modelTimeoutMs,
     modelAllowedHosts,
+    modelDisableThinking,
     allowInsecureLocalHttp,
     workspaceRoot,
     hasApiKey: !!modelApiKey,
@@ -92,6 +96,7 @@ export function loadConfig(): AppConfig {
     modelProvider,
     modelTimeoutMs,
     modelAllowedHosts,
+    modelDisableThinking,
     allowInsecureLocalHttp,
     workspaceRoot,
   };

@@ -465,7 +465,7 @@ export class ChatClient {
     );
 
     // -------- build body --------
-    const body = JSON.stringify({
+    const requestBody: Record<string, unknown> = {
       model: this.config.modelName,
       messages: [
         { role: "system", content: systemPrompt },
@@ -474,7 +474,13 @@ export class ChatClient {
       temperature: 0.1,
       max_tokens: 4096,
       stream: false,
-    });
+    };
+
+    if (this.config.modelDisableThinking) {
+      requestBody.chat_template_kwargs = { enable_thinking: false };
+    }
+
+    const body = JSON.stringify(requestBody);
 
     // -------- build headers (API key in Authorization — never logged) --------
     const headers: Record<string, string> = {

@@ -1,6 +1,6 @@
 {
   "name": "@jafish/wingman-mcp",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Wingman — Claude Code 的僚机 MCP server，提供摘要、压缩和 diff 初筛工具",
   "license": "MIT",
   "repository": {

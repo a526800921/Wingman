@@ -113,7 +113,23 @@ claude mcp add -s user wingman \
   -e AUX_MODEL_API_KEY=sk-xxx \
   -e AUX_MODEL_BASE_URL=https://api.deepseek.com/v1 \
   -e AUX_MODEL_NAME=deepseek-v4-flash \
+  -e AUX_MODEL_PROVIDER=remote \
   -e AUX_MODEL_ALLOWED_HOSTS=api.deepseek.com \
+  -- wingman-mcp
+```
+
+本地 OpenAI-compatible 模型也可以直接注册，例如本地 Qwen 服务监听 `8080`：
+
+```bash
+claude mcp add -s user wingman \
+  -e AUX_MODEL_API_KEY=local \
+  -e AUX_MODEL_BASE_URL=http://127.0.0.1:8080/v1 \
+  -e AUX_MODEL_NAME=/Users/jafish/Documents/models/Qwen3.6-35B-A3B-4bit \
+  -e AUX_MODEL_PROVIDER=local \
+  -e AUX_MODEL_TIMEOUT_MS=120000 \
+  -e AUX_MODEL_ALLOWED_HOSTS=127.0.0.1,localhost \
+  -e AUX_ALLOW_INSECURE_LOCAL_HTTP=true \
+  -e AUX_MODEL_DISABLE_THINKING=true \
   -- wingman-mcp
 ```
 
@@ -148,14 +164,20 @@ claude mcp add -s project wingman -- node "$(pwd)/dist/index.js"
 
 ## 配置
 
+Wingman 支持云端模型和本地模型两种接入方式。两者都需要提供 OpenAI-compatible `/v1/chat/completions` 接口；未配置 API key 时会进入 heuristic fallback。
+
+### 云端模型
+
 创建或编辑 `.env`：
 
 ```env
 AUX_MODEL_API_KEY=your-api-key
 AUX_MODEL_BASE_URL=https://api.deepseek.com/v1
 AUX_MODEL_NAME=deepseek-v4-flash
+AUX_MODEL_PROVIDER=remote
 AUX_MODEL_TIMEOUT_MS=30000
 AUX_MODEL_ALLOWED_HOSTS=api.deepseek.com
+AUX_MODEL_DISABLE_THINKING=false
 AUX_LOG_FILE=/path/to/Wingman/.aux-model.log
 ```
 
@@ -169,12 +191,30 @@ AUX_LOG_FILE=/path/to/Wingman/.aux-model.log
 | `AUX_MODEL_PROVIDER` | 否 | `remote` | 模型来源标签 |
 | `AUX_MODEL_TIMEOUT_MS` | 否 | `30000` | 请求超时，单位毫秒 |
 | `AUX_MODEL_ALLOWED_HOSTS` | 否 | — | 允许的 API host，逗号分隔 |
+| `AUX_MODEL_DISABLE_THINKING` | 否 | `false` | 为 Qwen 等模型附加 `chat_template_kwargs.enable_thinking=false` |
 | `AUX_WORKSPACE_ROOT` | 否 | 当前进程目录 | 文件读取根目录 |
 | `AUX_ALLOW_INSECURE_LOCAL_HTTP` | 否 | `false` | 仅允许 loopback 的本地 HTTP |
 | `AUX_LOG_LEVEL` | 否 | `info` | `debug/info/warn/error` |
 | `AUX_LOG_FILE` | 否 | `.aux-model.log` | 设置为 `off` 禁用文件日志 |
 
 \* 未配置 API key 时进入 heuristic fallback。该模式可用于降级和结构信号提取，但不等同于完整模型分析。
+
+### 本地模型
+
+本地模型需要显式允许 loopback HTTP。Qwen thinking 模型通常还需要关闭 thinking，确保服务返回标准 `choices[0].message.content`。
+
+例如 Qwen 服务监听 `8080`：
+
+```env
+AUX_MODEL_API_KEY=local
+AUX_MODEL_BASE_URL=http://127.0.0.1:8080/v1
+AUX_MODEL_NAME=/Users/jafish/Documents/models/Qwen3.6-35B-A3B-4bit
+AUX_MODEL_PROVIDER=local
+AUX_MODEL_TIMEOUT_MS=120000
+AUX_MODEL_ALLOWED_HOSTS=127.0.0.1,localhost
+AUX_ALLOW_INSECURE_LOCAL_HTTP=true
+AUX_MODEL_DISABLE_THINKING=true
+```
 
 ## 验证
 
