@@ -56,24 +56,27 @@ const CLOUD_METADATA_IP = ipv4ToInt([169, 254, 169, 254]);
 /** Special hostnames that resolve to loopback. */
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
-function ipv4ToInt(octets: readonly [number, number, number, number]): number {
+export function ipv4ToInt(octets: readonly [number, number, number, number]): number {
   return ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
 }
 
-function cidrMask(bits: number): number {
+export function cidrMask(bits: number): number {
   return bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
 }
 
 /** True when `addr` (uint32) falls inside the given CIDR block. */
-function ipInBlock(addr: number, block: CidrBlock): boolean {
-  return (addr & block.mask) === block.prefix;
+export function ipInBlock(addr: number, block: CidrBlock): boolean {
+  // >>> 0 necessary: JS `&` returns signed 32-bit; without it addresses
+  // whose first octet >= 128 (e.g. 192.168.x.x) produce negative values
+  // and never match the unsigned prefix.
+  return ((addr & block.mask) >>> 0) === block.prefix;
 }
 
 /**
  * Parse an IPv4 dotted-decimal string into a uint32, or `null` if the string
  * is not a valid IPv4 address.
  */
-function parseIPv4(raw: string): number | null {
+export function parseIPv4(raw: string): number | null {
   const parts = raw.split(".");
   if (parts.length !== 4) return null;
   const octets: number[] = [];
@@ -188,7 +191,7 @@ const BLOCKED_IPV6_RANGES: Array<{
 ];
 
 /** Simple IPv6 address string → 16-byte array, or null on parse failure. */
-function parseIPv6(raw: string): Uint8Array | null {
+export function parseIPv6(raw: string): Uint8Array | null {
   // Node's `net` module can do this more robustly — use a light parser here
   // to avoid extra imports.  Accept the standard colon-hex form and the
   // IPv4-mapped ::ffff:a.b.c.d form.
@@ -236,7 +239,7 @@ function parseIPv6(raw: string): Uint8Array | null {
 }
 
 /** Check an IPv6 address string against blocked ranges. */
-function assertSafeIPv6(
+export function assertSafeIPv6(
   addr: string,
   allowInsecureLocalHttp: boolean,
 ): void {
@@ -257,7 +260,7 @@ function assertSafeIPv6(
 }
 
 /** True when `bytes` (16-byte IPv6) falls inside the given prefix block. */
-function ipv6InBlock(bytes: Uint8Array, block: typeof BLOCKED_IPV6_RANGES[number]): boolean {
+export function ipv6InBlock(bytes: Uint8Array, block: typeof BLOCKED_IPV6_RANGES[number]): boolean {
   const fullBytes = block.prefixLen >> 3;
   for (let i = 0; i < fullBytes; i++) {
     if (bytes[i] !== block.prefix[i]) return false;
@@ -274,7 +277,7 @@ function ipv6InBlock(bytes: Uint8Array, block: typeof BLOCKED_IPV6_RANGES[number
  * Check a resolved IPv4 address (as uint32) against blocked ranges.
  * Allows loopback only when `allowInsecureLocalHttp` is true.
  */
-function assertSafeIPv4(
+export function assertSafeIPv4(
   addr: number,
   displayAddr: string,
   allowInsecureLocalHttp: boolean,
@@ -358,7 +361,7 @@ async function validateUrl(
 // Retry helpers
 // ---------------------------------------------------------------------------
 
-function sleep(ms: number): Promise<void> {
+export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
@@ -375,7 +378,7 @@ function sleep(ms: number): Promise<void> {
  *   - 4xx responses
  *   - Timeout AbortError (handled before reaching here)
  */
-function isRetryable(err: unknown): boolean {
+export function isRetryable(err: unknown): boolean {
   if (err instanceof ChatClientError) return false;
 
   // Network-level errors
@@ -389,7 +392,7 @@ function isRetryable(err: unknown): boolean {
 
 const RETRYABLE_STATUSES = new Set([502, 503, 504]);
 
-function isRetryableStatus(status: number): boolean {
+export function isRetryableStatus(status: number): boolean {
   return RETRYABLE_STATUSES.has(status);
 }
 
@@ -682,7 +685,7 @@ export class ChatClient {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function describeError(err: unknown): string {
+export function describeError(err: unknown): string {
   if (err instanceof Error) return err.constructor.name;
   return typeof err === "string" ? err : String(err);
 }
