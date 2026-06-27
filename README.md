@@ -30,7 +30,7 @@ Wingman 采用模型优先架构：
 
 | 工具 | 核心意图 | 适合输入 | 不承担的职责 |
 |---|---|---|---|
-| `aux_summarize_file` | 建立单个大文件的结构与职责认知 | 源码、Markdown、测试文件 | 权威符号索引、依赖分析、重构决策 |
+| `aux_summarize_file` | 建立单个大文件的结构与职责认知 | 源码、Markdown、测试文件、Swift/多语言 | 权威符号索引、依赖分析、重构决策；新语言由模型路径承担语义，不新增语言正则 |
 | `aux_compress_text` | 压缩通用非结构化文本 | 长文档、普通日志、错误说明 | 精确诊断、命令失败统计 |
 | `aux_compress_command_output` | 从命令输出提取失败点和 evidence | test/build/lint/compiler/stack trace 等任意命令输出 | 自动修复、权威根因判断 |
 | `aux_review_diff` | 对小型 unified diff 提出有证据的风险假设 | 小 diff、提交前快速初筛 | 最终 code review、安全审计、合并决策 |
@@ -83,7 +83,7 @@ MCP request
   → 非权威结果
 ```
 
-模型不可用或调用失败时，工具会进入 heuristic fallback。fallback 只能提供确定性结构和低置信度 signals，不能等同于完整模型分析。
+模型不可用或调用失败时，工具会进入 heuristic fallback。fallback 返回低置信度结构 signals（`heuristic_signals`），`analysis_status` 固定为 `partial`。调用方应检查 `_meta.fallback_used` 和 `analysis_status` 判断结果可靠性。
 
 `aux_compress_command_output` 会区分 `valid`、`partial_valid`、`empty`、JSON/schema 失败和 transport failure。非零退出且模型响应不可用时，工具最多进行一次受限修复调用；已有稳定 adapter 的格式可进入 deterministic coverage guard，并明确标记 fallback 和分析状态。
 
@@ -237,16 +237,19 @@ npm run smoke
 npm run dev
 ```
 
-测试包括：
+测试包括（共 314 个）：
 
 - workspace 与 schema 安全边界；
 - command output diagnostic、overlay、调用预算、handler 级恢复和真实 fixture；
 - diff chunking 与文件级聚合；
-- 无模型配置下的 smoke fallback。
+- 无模型配置下的 smoke fallback；
+- SwiftUI/DSL 误识别红灯测试（`summarize_file` model-first 迁移）；
+- prompt 注入防护、JSON 提取与响应后处理；
+- chat-client SSRF/CIDR/IPv4/IPv6/重试逻辑；
+- 五个工具的模型路径集成测试（需 API key）；
+- 行覆盖率 87.8%。
 
 Round 4 真实模型回放连续 3 次均保留 14/14 findings，每次 1 次模型调用且未使用 fallback。脱敏结果见[回放证据](https://github.com/a526800921/Wingman/blob/main/docs/validation/command-output-round4-replay-2026-06-20.md)。
-
-当前测试重点偏向 `aux_compress_command_output`。其他工具的真实模型成功、部分失败、evidence 和大输入回归仍需补齐。
 
 ## 项目结构
 
@@ -284,10 +287,10 @@ test/
 ### 需要继续收敛的部分
 
 - `review_diff_by_file` 长期应成为 `review_diff` 的内部大输入策略。
-- fallback 中仍有较多语言、关键词和风险规则，应逐步降级为 validators/signals。
+- `review_diff` 和 `compress_text` fallback 中仍有较多关键词和风险规则，应逐步降级为 validators/signals。
 - 各工具的长输入策略和执行元数据尚未完全统一。
 - `src/index.ts` 的 MCP JSON schema 与 `src/schema.ts` 手工重复，存在字段漂移风险。
-- 测试覆盖集中在 command output，其他模型型工具缺少同等强度的真实 fixture 与失败路径测试。
+- `compress_command_output` 外的其他工具真实模型成功、部分失败和大输入回归仍需补齐。
 
 ## 文档
 
@@ -300,6 +303,7 @@ test/
 | [计划质量评审](https://github.com/a526800921/Wingman/blob/main/docs/plan-quality-review.md) | 7 份设计文档的强项/弱项分析与改进建议 |
 | [Command Output 模型优先计划](https://github.com/a526800921/Wingman/blob/main/docs/model-first-command-output-plan.md) | 任意命令输出、evidence 和通用分块 |
 | [输出 Schema 迁移](https://github.com/a526800921/Wingman/blob/main/docs/migrations/model-first-output-schema.md) | analysis status、heuristic signals 和 failure 字段迁移 |
+| [Summarize File 模型优先计划](https://github.com/a526800921/Wingman/blob/main/docs/plans/summarize-file-model-first.md) | **已完成** — DSL 误识别修复、智能截断、heuristic_signals、Swift/多语言支持 |
 | [模型响应契约恢复](https://github.com/a526800921/Wingman/blob/main/docs/plans/command-output-response-contract-recovery.md) | **已完成** — Round 4 分层校验、null 规范化、非零退出恢复 |
 | [Round 4 回放证据](https://github.com/a526800921/Wingman/blob/main/docs/validation/command-output-round4-replay-2026-06-20.md) | 3 次真实模型回放的脱敏状态、计数和门禁结果 |
 | [真实场景验证方案](https://github.com/a526800921/Wingman/blob/main/docs/phase2-tools-validation-plan.md) | fixtures、契约、模型评测与 Shadow 验证 |
