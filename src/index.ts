@@ -76,6 +76,8 @@ const SUMMARIZE_FILE_OUTPUT_SCHEMA = {
       properties: {
         model: { type: "string" },
         tokens_used: { type: "integer" },
+        prompt_tokens: { type: "integer" },
+        completion_tokens: { type: "integer" },
         input_truncated: { type: "boolean" },
         fallback_used: { type: "boolean" },
       },
@@ -127,6 +129,8 @@ const COMPRESS_TEXT_OUTPUT_SCHEMA = {
       properties: {
         model: { type: "string" },
         tokens_used: { type: "integer" },
+        prompt_tokens: { type: "integer" },
+        completion_tokens: { type: "integer" },
         input_truncated: { type: "boolean" },
         fallback_used: { type: "boolean" },
       },
@@ -204,6 +208,8 @@ const REVIEW_DIFF_OUTPUT_SCHEMA = {
       properties: {
         model: { type: "string" },
         tokens_used: { type: "integer" },
+        prompt_tokens: { type: "integer" },
+        completion_tokens: { type: "integer" },
         input_truncated: { type: "boolean" },
         fallback_used: { type: "boolean" },
       },
@@ -317,6 +323,8 @@ const REVIEW_DIFF_BY_FILE_OUTPUT_SCHEMA = {
         provider: { type: "string" },
         model: { type: "string" },
         tokens_used: { type: "integer" },
+        prompt_tokens: { type: "integer" },
+        completion_tokens: { type: "integer" },
         input_truncated: { type: "boolean" },
         fallback_used: { type: "boolean" },
         chunking: {
@@ -412,6 +420,8 @@ const COMPRESS_COMMAND_OUTPUT_OUTPUT_SCHEMA = {
         provider: { type: "string" },
         model: { type: "string" },
         tokens_used: { type: "integer" },
+        prompt_tokens: { type: "integer" },
+        completion_tokens: { type: "integer" },
         input_truncated: { type: "boolean" },
         fallback_used: { type: "boolean" },
         chunking: { type: "object" },

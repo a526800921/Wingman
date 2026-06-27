@@ -240,6 +240,8 @@ async function tryModelSummarization(
         provider,
         model: config.modelName,
         tokens_used: usage?.total_tokens ?? 0,
+        prompt_tokens: usage?.prompt_tokens,
+        completion_tokens: usage?.completion_tokens,
         input_truncated: inputTruncated,
         fallback_used: false,
       },

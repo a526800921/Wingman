@@ -36,7 +36,7 @@ async function singleCallModelReview(
   diff: string,
   focus: string | undefined,
   log: ReturnType<typeof traceLogger>,
-): Promise<{ findings: DiffFinding[] | null; tokens: number } | null> {
+): Promise<{ findings: DiffFinding[] | null; tokens: number; promptTokens: number; completionTokens: number } | null> {
   try {
     const systemPrompt = buildReviewDiffByFileSystemPrompt();
     const userMsg = buildReviewDiffByFileUserMessage(diff, "full-diff", false, focus);
@@ -52,7 +52,7 @@ async function singleCallModelReview(
         }
       }
     }
-    return { findings: findings.length > 0 ? findings : null, tokens: usage?.total_tokens ?? 0 };
+    return { findings: findings.length > 0 ? findings : null, tokens: usage?.total_tokens ?? 0, promptTokens: usage?.prompt_tokens ?? 0, completionTokens: usage?.completion_tokens ?? 0 };
   } catch (err) {
     log.warn("review-diff-by-file: single-call model review failed", {
       error: err instanceof Error ? err.message : String(err),
@@ -205,6 +205,8 @@ export async function handleReviewDiffByFile(
     const modelAvailable = hasModelConfig() && hasApiKey(config);
     let allFindings: DiffFinding[] = [];
     let totalTokens = 0;
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
 
     if (modelAvailable && chunks.length > 0) {
       const client = new ChatClient(config as AppConfig);
@@ -221,6 +223,8 @@ export async function handleReviewDiffByFile(
         if (result) {
           allFindings = result.findings ?? [];
           totalTokens += result.tokens;
+          totalPromptTokens += result.promptTokens;
+          totalCompletionTokens += result.completionTokens;
           log.info("review-diff-by-file: single-call model path done", { findings: allFindings.length });
         }
       }
@@ -259,6 +263,8 @@ export async function handleReviewDiffByFile(
               allFindings.push(findingsFromModel(parsed, chunkLabel));
             }
             totalTokens += usage?.total_tokens ?? 0;
+            totalPromptTokens += usage?.prompt_tokens ?? 0;
+            totalCompletionTokens += usage?.completion_tokens ?? 0;
             succeededChunks++;
           } catch (err) {
             failedChunks++;
@@ -297,7 +303,7 @@ export async function handleReviewDiffByFile(
       omitted_files: meta.omitted.map(o => ({ file: o.source ?? o.label, reason: o.reason })),
       is_authoritative: false,
       analysis_status: meta.input_truncated ? "partial" : "complete" as const,
-      _meta: { provider, model: (config as AppConfig).modelName, tokens_used: totalTokens, input_truncated: meta.input_truncated, fallback_used: false, chunking: meta, analysis_status: meta.input_truncated ? "partial" : "complete" as const, model_attempted: true },
+      _meta: { provider, model: (config as AppConfig).modelName, tokens_used: totalTokens, prompt_tokens: totalPromptTokens || undefined, completion_tokens: totalCompletionTokens || undefined, input_truncated: meta.input_truncated, fallback_used: false, chunking: meta, analysis_status: meta.input_truncated ? "partial" : "complete" as const, model_attempted: true },
     };
 
     const outValidation = validateOutput("aux_review_diff_by_file", output);

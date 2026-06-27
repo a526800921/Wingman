@@ -208,6 +208,8 @@ async function modelFirstPath(
   let modelFailureReason: string | undefined;
   let modelCallAttempts = 0;
   let totalTokens = 0;
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
 
   if (output.length <= SINGLE_CALL_CHAR_BUDGET) {
     // ── Small input: single model call ────────────────────
@@ -216,6 +218,8 @@ async function modelFirstPath(
     try {
       const { text: raw, usage } = await client.chat(systemPrompt, userMsg);
       totalTokens += usage?.total_tokens ?? 0;
+      totalPromptTokens += usage?.prompt_tokens ?? 0;
+      totalCompletionTokens += usage?.completion_tokens ?? 0;
       const decoded = decodeModelFirstResponse(raw);
 
       modelResponseStatus = decoded.status;
@@ -271,6 +275,8 @@ async function modelFirstPath(
       try {
         const { text: repairRaw, usage: repairUsage } = await client.chat(repairSystemPrompt, userMsg);
         totalTokens += repairUsage?.total_tokens ?? 0;
+        totalPromptTokens += repairUsage?.prompt_tokens ?? 0;
+        totalCompletionTokens += repairUsage?.completion_tokens ?? 0;
         const repairDecoded = decodeModelFirstResponse(repairRaw);
 
         modelResponseStatus = repairDecoded.status;
@@ -387,6 +393,8 @@ async function modelFirstPath(
             provider,
             model: modelName,
             tokens_used: totalTokens,
+            prompt_tokens: totalPromptTokens || undefined,
+            completion_tokens: totalCompletionTokens || undefined,
             input_truncated: inputTruncated,
             fallback_used: true,
             chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "model-first-fallback" },
@@ -463,6 +471,8 @@ async function modelFirstPath(
       provider,
       model: modelName,
       tokens_used: totalTokens,
+      prompt_tokens: totalPromptTokens || undefined,
+      completion_tokens: totalCompletionTokens || undefined,
       input_truncated: inputTruncated,
       fallback_used: fallbackUsed,
       chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "model-first" },
@@ -678,6 +688,8 @@ async function runTscBatchModelPath(
   let enhancementsApplied = 0;
   let unknownIds = 0;
   let totalTokens = 0;
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
   const seenOverlayIds = new Set<string>();
 
   for (const batch of cappedBatches) {
@@ -686,6 +698,8 @@ async function runTscBatchModelPath(
       const userMsg = buildCompressCommandOutputBatchUserMessage(diagnostics, command, exitCode, focus);
       const { text: raw, usage } = await client.chat(systemPrompt, userMsg);
       totalTokens += usage?.total_tokens ?? 0;
+      totalPromptTokens += usage?.prompt_tokens ?? 0;
+      totalCompletionTokens += usage?.completion_tokens ?? 0;
       const jsonStr = extractJsonFromResponse(raw);
       const parsed = JSON.parse(jsonStr);
 
@@ -751,6 +765,8 @@ async function runChunkModelPath(
   let succeeded = 0;
   const collected: CommandOutputFinding[] = [];
   let totalTokens = 0;
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
   const CONCURRENCY = 2;
 
   for (let i = 0; i < cappedChunks.length; i += CONCURRENCY) {
@@ -760,6 +776,8 @@ async function runChunkModelPath(
         const userMsg = buildCompressCommandOutputUserMessage(chunk.text, command, exitCode, focus);
         const { text: raw, usage } = await client.chat(systemPrompt, userMsg);
         totalTokens += usage?.total_tokens ?? 0;
+        totalPromptTokens += usage?.prompt_tokens ?? 0;
+        totalCompletionTokens += usage?.completion_tokens ?? 0;
         const jsonStr = extractJsonFromResponse(raw);
         const parsed = JSON.parse(jsonStr);
 
