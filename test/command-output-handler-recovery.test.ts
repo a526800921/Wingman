@@ -18,6 +18,8 @@ import { strict as assert } from "node:assert";
 import { ChatClient, ChatClientError, ChatResult } from "../src/chat-client.js";
 import type { AppConfig } from "../src/config.js";
 import { handleCompressCommandOutput } from "../src/tools/compress-command-output.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const savedModelApiKey = process.env.AUX_MODEL_API_KEY;
 
@@ -40,6 +42,11 @@ src/utils.ts(8,1): error TS2304: Cannot find name 'process'.
 src/handler.ts(88,12): error TS2339: Property 'validated' does not exist.
 Found 3 errors in 3 files.
 `;
+
+const XCODEBUILD_SUCCESS_OUTPUT = readFileSync(
+  join(process.cwd(), "test/fixtures/command-output/xcodebuild-success-136-tests.txt"),
+  "utf-8",
+);
 
 // ── Mock ChatClient ──────────────────────────────────────
 
@@ -150,6 +157,51 @@ describe("handleCompressCommandOutput — model-first recovery (mocked)", () => 
     assert.equal(data._meta.batches_failed, 0);
     assert.equal(data._meta.fallback_used, false);
     assert.equal(client.callCount, 1, "Should make exactly 1 call");
+  });
+
+  it("overrides model test_failure when deterministic evidence proves test success", async () => {
+    const client = new MockChatClient([
+      JSON.stringify({
+        detected_kind: "generic_log",
+        summary: "All tests executed successfully with no failures.",
+        findings: [
+          {
+            finding_id: "f0",
+            kind: "test_failure",
+            message: "All tests executed successfully with no failures.",
+            evidence: "** TEST SUCCEEDED **",
+            confidence: "high",
+          },
+        ],
+      }),
+    ]);
+
+    const result = await handleCompressCommandOutput(
+      {
+        command: "xcodebuild test",
+        output: XCODEBUILD_SUCCESS_OUTPUT,
+        exit_code: 0,
+        analysis_mode: "model_first",
+      },
+      { modelApiKey: "test", modelBaseUrl: "https://api.test.com/v1", modelName: "test", modelTimeoutMs: 5000, modelAllowedHosts: ["api.test.com"], allowInsecureLocalHttp: false, workspaceRoot: "/tmp" } as AppConfig,
+      client,
+    );
+
+    const data = parseResult(result);
+    assert.equal(result.isError, false);
+    assert.equal(client.callCount, 1, "Should still make the model call");
+    assert.equal(data.findings[0].kind, "test_success");
+    assert.equal(data.first_failure, null);
+    assert.equal(data.primary_actionable_failure, null);
+    assert.equal(data._meta.fallback_used, true);
+    assert.equal(data._meta.model_used, false);
+    assert.equal(data._meta.detector_hint, "test_output");
+    assert.equal(data._meta.model_detected_kind, "generic_log");
+    assert.equal(data._meta.kind_mismatch, true);
+    assert.ok(
+      !data.findings.some((finding: { kind: string }) => finding.kind === "test_failure"),
+      "Deterministic all-green output must not retain model test_failure findings",
+    );
   });
 
   // ── Empty response + non-zero exit → coverage guard ──

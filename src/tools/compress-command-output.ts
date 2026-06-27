@@ -51,6 +51,15 @@ const BATCH_MAX_CHARS = 6000;
 const MAX_MODEL_CALLS = 5;
 /** Characters below which we treat input as "small" and send in one call. */
 const SINGLE_CALL_CHAR_BUDGET = 12000;
+const SUCCESS_KINDS = new Set<CommandOutputFinding["kind"]>(["test_success", "build_success"]);
+
+function isFailureFinding(f: CommandOutputFinding): boolean {
+  return f.kind !== "warning" && f.kind !== "info" && !SUCCESS_KINDS.has(f.kind);
+}
+
+function isDeterministicSuccessOnly(findings: CommandOutputFinding[]): boolean {
+  return findings.some(f => SUCCESS_KINDS.has(f.kind)) && !findings.some(isFailureFinding);
+}
 
 // ── Enrichment decision ───────────────────────────────────
 
@@ -310,6 +319,73 @@ async function modelFirstPath(
   } else {
     // Large input: chunk by generic boundaries, then batch
     return await autoPath(client, provider, modelName, output, command, exitCode, focus, detectorHint, inputTruncated, output.length, log);
+  }
+
+  const deterministicFallback = compressCommandOutputFallback(command, output, exitCode, output.length);
+  const deterministicSuccessOnly =
+    exitCode === 0 && isDeterministicSuccessOnly(deterministicFallback.findings);
+
+  if (deterministicSuccessOnly) {
+    log.info("compress-command-output: deterministic success overrides model findings");
+
+    deterministicFallback.findings.forEach(f => { f.evidence = sanitizeEvidence(f.evidence); });
+    const fbDerived = deriveFromFindings(deterministicFallback.findings, command, exitCode, detectorHint, output.length, output.length);
+    const kindMismatch = modelDetectedKind ? modelDetectedKind !== detectorHint : false;
+
+    const outputData: CompressCommandOutputOutput = {
+      summary: fbDerived.summary,
+      analysis_status: "complete",
+      first_failure: stripInternalFields(fbDerived.first_failure) ?? null,
+      primary_actionable_failure: stripInternalFields(fbDerived.primary_actionable_failure) ?? null,
+      findings: stripInternalFieldsFromArray(deterministicFallback.findings),
+      repeated_errors: fbDerived.repeated_errors,
+      suggested_source_checks: fbDerived.suggested_source_checks,
+      suggested_next_commands: fbDerived.suggested_next_commands,
+      discarded_or_low_confidence: [
+        ...fbDerived.discarded_or_low_confidence,
+        "Model findings ignored because deterministic output contains a strong success signal",
+      ],
+      uncertainties: uncertainties.length > 0 ? uncertainties : undefined,
+      reported_totals: reportedTotals,
+      is_authoritative: false,
+      _meta: {
+        provider,
+        model: modelName,
+        tokens_used: totalTokens,
+        prompt_tokens: totalPromptTokens || undefined,
+        completion_tokens: totalCompletionTokens || undefined,
+        input_truncated: inputTruncated,
+        fallback_used: true,
+        chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "model-first-deterministic-success-guard" },
+        analysis_status: "complete",
+        ...buildDiagnosticMeta({
+          analysisMode: "heuristic_fallback",
+          modelUsed: false,
+          modelAttempted: true,
+          confidence: "high",
+          limitations: ["Model findings contradicted deterministic success evidence and were not used"],
+        }),
+        model_response_status: modelResponseStatus,
+        model_call_attempts: modelCallAttempts,
+        model_findings_received: modelFindingsReceived,
+        model_findings_rejected: modelFindingsRejected,
+        findings_retained: deterministicFallback.findings.length,
+        verified_findings: deterministicFallback.findings.length,
+        partial_findings: 0,
+        unverified_findings: 0,
+        batches_sent: batchesSent,
+        batches_succeeded: batchesSucceeded,
+        batches_failed: batchesFailed,
+        detector_hint: detectorHint,
+        model_detected_kind: modelDetectedKind,
+        kind_mismatch: kindMismatch,
+      } as CompressCommandOutputOutput["_meta"],
+    };
+
+    const validation = validateOutput("aux_compress_command_output", outputData);
+    if (validation.ok) {
+      return { content: [{ type: "text", text: JSON.stringify(validation.data) }], isError: false };
+    }
   }
 
   // ── Evidence verification ──────────────────────────────
@@ -854,16 +930,10 @@ function deriveFromFindings(
   outputLength: number,
   maxChars: number,
 ): DerivedFields {
-  const SUCCESS_KINDS = new Set(["test_success", "build_success"]);
-
   const sortedByIndex = [...findings].sort(
     (a, b) => (a.first_seen_index ?? 0) - (b.first_seen_index ?? 0),
   );
-  const isFailureFinding = (f: CommandOutputFinding): boolean =>
-    f.kind !== "warning" && f.kind !== "info" && !SUCCESS_KINDS.has(f.kind);
-  const firstFailure = sortedByIndex.find(f =>
-    isFailureFinding(f),
-  );
+  const firstFailure = sortedByIndex.find(isFailureFinding);
 
   const sourceKindPriority: Record<string, number> = {
     project: 0, test: 1, generated: 2, dependency: 3, unknown: 4,

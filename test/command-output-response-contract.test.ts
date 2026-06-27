@@ -376,6 +376,23 @@ describe("decodeModelFirstResponse — layered validation (target: green)", () =
     assert.equal(result.reported_totals?.errors, 14);
   });
 
+  it("accepts success kinds in model-first findings", () => {
+    const result = decodeModelFirstResponse(json({
+      detected_kind: "test_output",
+      findings: [{
+        finding_id: "f0",
+        kind: "test_success",
+        message: "All tests passed",
+        evidence: "** TEST SUCCEEDED **",
+        confidence: "high",
+      }],
+    }));
+
+    assert.equal(result.status, "valid");
+    assert.equal(result.accepted_findings.length, 1);
+    assert.equal(result.accepted_findings[0]?.kind, "test_success");
+  });
+
   // ── Null normalization ─────────────────────────────────
 
   it("normalizes null optional fields → retains finding (was RED, now GREEN)", () => {

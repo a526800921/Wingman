@@ -66,6 +66,7 @@ const RelaxedFindingSchema = z.object({
   kind: z.enum([
     "test_failure", "type_error", "lint_error", "build_error",
     "runtime_exception", "warning", "info", "unknown",
+    "test_success", "build_success",
   ]),
   message: z.string(),
   file: z.string().optional(),
