@@ -52,12 +52,12 @@ CRITICAL RULES:
 
 OUTPUT SCHEMA:
 {
-  "summary": "string — 2-5 sentence overview of what this file does",
+  "summary": "string — 2-5 sentence overview of what this file does and its role in the codebase",
   "important_symbols": [
     {
       "name": "string",
-      "kind": "function|class|interface|type|const|enum|unknown",
-      "role": "string — one-line description",
+      "kind": "function|class|struct|interface|type|const|enum|unknown",
+      "role": "string — one-line description of what this symbol does",
       "location": "string — approximate line number or region (optional)"
     }
   ],
@@ -79,16 +79,16 @@ OUTPUT SCHEMA:
   "file_kind": "code|markdown|text|test|unknown",
   "evidence": [
     {
-      "claim": "string — what the summary asserts",
-      "source": "string — line reference, symbol name, or snippet",
+      "claim": "string — what the summary asserts about this file",
+      "source": "string — line number, symbol name, or code snippet that supports the claim",
       "confidence": "high|medium|low (optional)"
     }
   ],
   "uncertainties": [
     {
-      "topic": "string",
-      "reason": "string",
-      "suggested_verification": "string (optional)"
+      "topic": "string — what is uncertain",
+      "reason": "string — why it is uncertain (e.g., truncated content, ambiguous naming, missing context)",
+      "suggested_verification": "string (optional) — how to verify"
     }
   ],
   "must_verify_in_source": true,
@@ -97,14 +97,25 @@ OUTPUT SCHEMA:
 
 RULES:
 - Only include symbols you actually SEE in the code. Do NOT invent.
-- Limit important_symbols to at most 15 entries.
-- evidence must reference specific code patterns.
-- uncertainties should flag anything unclear without more context.
+- Limit important_symbols to at most 15 entries. Prioritize exported/public symbols.
+- Every claim in "summary" MUST be backed by at least one entry in "evidence".
+- evidence entries MUST reference specific line numbers, symbol names, or short code snippets.
+- uncertainties MUST flag: anything unclear without more context, truncated sections that hide content, and any ambiguity that could mislead.
+- If the file content is marked as truncated (contains "[... N characters omitted ...]"), document this in uncertainties and note that the middle section was not analyzed.
+- When the language is not TypeScript/JavaScript, add an uncertainty about language-specific interpretation limits.
+
+DSL / UI COMPONENT RULES:
+- SwiftUI: VStack, HStack, ZStack, Button, Text, Image, ScrollView, List, ForEach, NavigationView, etc. are UI component constructors — NOT top-level declarations. Do NOT include them in important_symbols.
+- Jetpack Compose: Column, Row, Box, Card, etc. are composable functions — NOT top-level declarations.
+- Flutter: Container, Center, Column, Row, SizedBox, etc. are widget constructors — NOT top-level declarations.
+- For React/JSX: lowercase component names (div, span, section) are HTML elements, not symbols.
+- Only include user-defined struct/class/function/enum/interface/type declarations in important_symbols.
 
 FILE TYPE HANDLING:
-- For TypeScript/JavaScript/Python/Rust/Go/Java source files: populate "important_symbols" as before.
+- For TypeScript/JavaScript/Python/Rust/Go/Java/Swift source files: populate "important_symbols" with user-defined declarations. Use "struct" kind for Swift/Rust structs.
 - For Markdown (.md/.mdx) and text files: do NOT put headings in "important_symbols". Instead, populate "important_sections" with heading, role, and location.
 - For test files (*.test.ts, *.spec.ts, etc.): do NOT include test framework functions (describe, it, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi, jest) in "important_symbols". Instead, populate "test_cases" with test names and behaviors, and "covered_behaviors" with what is being tested.
+- For Swift files: identify struct declarations (struct Name: View/Protocol), class declarations with property wrappers (@MainActor, @ObservableObject, @Published), and async throws functions. Provide evidence referencing line-level patterns.
 - Set "file_kind" to "code", "markdown", "text", "test", or "unknown".`;
 }
 

@@ -10,10 +10,18 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolveSafePath, DEFAULT_MAX_READ_CHARS } from "../workspace.js";
 import { logger } from "../logger.js";
+import { splitPrefixSuffix, joinPrefixSuffix } from "../model-runtime/truncation.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+export interface HeuristicSignal {
+  kind: string;
+  location?: string;
+  evidence: string;
+  confidence: "low" | "medium";
+}
 
 export interface FallbackSummarizeResult {
   summary: string;
@@ -27,6 +35,7 @@ export interface FallbackSummarizeResult {
       | "type"
       | "const"
       | "enum"
+      | "struct"
       | "unknown";
     role: string;
     location?: string;
@@ -44,6 +53,7 @@ export interface FallbackSummarizeResult {
     reason: string;
     suggested_verification?: string;
   }>;
+  heuristic_signals?: HeuristicSignal[];
   must_verify_in_source: boolean;
   is_authoritative: false;
 }
@@ -59,6 +69,39 @@ interface RawSymbol {
   kind: SymbolKind;
   role: string;
   line: number;
+}
+
+/**
+ * DSL / UI framework component names that the generic `name(...) {` regex
+ * may incorrectly match as top-level function declarations.
+ *
+ * This is NOT a full parser — it's a minimal filter to reduce false positives
+ * in SwiftUI, Jetpack Compose, Flutter, React, and similar DSLs.
+ */
+const DSL_COMPONENT_BLOCKLIST = new Set([
+  // SwiftUI
+  "VStack", "HStack", "ZStack", "LazyVStack", "LazyHStack",
+  "ScrollView", "List", "Form", "Group", "ForEach",
+  "Button", "Text", "Image", "Label", "Link", "Menu",
+  "TextField", "SecureField", "TextEditor",
+  "Toggle", "Slider", "Stepper", "Picker", "DatePicker",
+  "ColorPicker", "ProgressView",
+  "NavigationView", "NavigationLink", "NavigationStack",
+  "TabView", "TabItem",
+  "Divider", "Spacer",
+  "GeometryReader", "ScrollViewReader",
+  // Jetpack Compose
+  "Column", "Row", "Box", "Card", "LazyColumn", "LazyRow",
+  // Flutter
+  "Container", "Center", "Padding", "SizedBox", "Expanded",
+  // React / JSX (common lowercase built-ins that regex might match)
+  "div", "span", "section", "article", "header", "footer",
+]);
+
+/** Check if a name is a known DSL/UI component that should NOT be treated
+ *  as a top-level function declaration. */
+function isDslComponent(name: string): boolean {
+  return DSL_COMPONENT_BLOCKLIST.has(name);
 }
 
 /** Map file extension to a human-readable language name. */
@@ -160,6 +203,15 @@ function buildRole(
       }
       break;
     }
+    case "struct": {
+      const conformMatch = line.match(/:\s*(\w+)/);
+      if (conformMatch !== null) {
+        modifiers.push(`struct conforms to ${conformMatch[1]}`);
+      } else {
+        modifiers.push("struct");
+      }
+      break;
+    }
     case "interface": {
       const extendsMatch = line.match(/\bextends\s+/);
       modifiers.push(extendsMatch !== null ? "interface with extends" : "interface");
@@ -227,6 +279,9 @@ function buildPatterns(): ExtractionPattern[] {
     },
     // Method / function shorthand: name(params) {  (after function/class already
     // captured, this catches plain method definitions in objects / classes)
+    // NOTE: This is the least-specific pattern and produces the most false
+    // positives (especially for DSL/UI components). Results are filtered
+    // against DSL_COMPONENT_BLOCKLIST.
     {
       regex: /^\s*(export\s+)?(async\s+)?(\w+)\s*\([^)]*\)\s*\{/gm,
       kind: "function",
@@ -245,6 +300,15 @@ function buildPatterns(): ExtractionPattern[] {
       regex: /^\s*class\s+(\w+)/gm,
       kind: "class",
       nameGroup: 1,
+    },
+
+    // ---------- struct (Swift, Rust) ----------
+    // Swift: struct Name: View { / struct Name: Codable {
+    // Rust: pub struct Name { / struct Name {
+    {
+      regex: /^\s*(pub(?:lic)?\s+)?struct\s+(\w+)/gm,
+      kind: "struct",
+      nameGroup: 2,
     },
 
     // ---------- interfaces ----------
@@ -325,6 +389,9 @@ function extractSymbols(text: string): RawSymbol[] {
       }
       if (seen.has(name)) continue;
       seen.add(name);
+
+      // Filter DSL/UI component names caught by the generic name(...) { pattern
+      if (pat.kind === "function" && isDslComponent(name)) continue;
 
       const line = lineNumberOf(text, m.index);
       const matchLine = text.split("\n")[line - 1] ?? m[0];
@@ -768,20 +835,30 @@ export function summarizeFileFallback(
     );
   }
 
-  // Truncate to maxChars if needed
+  // Truncate to maxChars if needed, preserving both prefix and suffix
   const truncated = rawText.length > limitChars;
-  const text = truncated ? rawText.slice(0, limitChars) : rawText;
+  let text: string;
+  let omittedChars = 0;
 
   if (truncated) {
+    const split = splitPrefixSuffix(rawText, limitChars);
+    text = joinPrefixSuffix(split.prefix, split.suffix, split.omittedChars);
+    omittedChars = split.omittedChars;
     logger.info(
-      `summarizeFileFallback: truncating file from ${rawText.length} to ${limitChars} chars`,
+      `summarizeFileFallback: smart truncation — ${split.prefix.length} prefix + ${split.suffix.length} suffix, ${omittedChars} chars omitted`,
     );
+  } else {
+    text = rawText;
   }
 
   // 3. Determine file type from extension
   const ext = path.extname(relativePath).toLowerCase();
   const lang = langFromExtension(ext);
   const fileKind = detectFileKind(relativePath);
+
+  // Detect whether regex patterns have high confidence for this language
+  const tsJsExts = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+  const isTsJs = tsJsExts.has(ext);
 
   // 4. Extract structured information (symbols, sections, test data based on kind)
   let symbols = extractSymbols(text);
@@ -830,9 +907,7 @@ export function summarizeFileFallback(
     }));
 
   // 7. Build evidence array
-  // Add the summary itself as evidence
   const allEvidence: FallbackSummarizeResult["evidence"] = [...evidence];
-  // Add file kind as evidence
   allEvidence.push({
     claim: `File kind detected: ${fileKind}`,
     source: "extension and path-based detection",
@@ -840,30 +915,76 @@ export function summarizeFileFallback(
   });
   if (truncated) {
     allEvidence.push({
-      claim: `File was truncated from ${rawText.length} to ${limitChars} characters`,
-      source: "read limit applied",
+      claim: `File was truncated — ${omittedChars} chars omitted, ${text.length} chars analyzed (${limitChars} budget)`,
+      source: "smart truncation (prefix + suffix)",
       confidence: "high",
     });
   }
 
-  // 8. Build uncertainties
+  // 8. Build heuristic_signals — structural signals, NOT semantic analysis
+  const heuristicSignals: HeuristicSignal[] = [];
+
+  // Import modules as heuristic signals
+  if (importModules.length > 0) {
+    heuristicSignals.push({
+      kind: "imports",
+      evidence: `Imports from ${importModules.length} module(s): ${importModules.slice(0, 10).join(", ")}${importModules.length > 10 ? ", ..." : ""}`,
+      confidence: "medium",
+    });
+  }
+
+  // Line count signals
+  const nonEmptyLines = text.split("\n").filter((l) => l.trim() !== "").length;
+  heuristicSignals.push({
+    kind: "line_counts",
+    evidence: `${totalLines} total lines, ${nonEmptyLines} non-empty`,
+    confidence: "medium",
+  });
+
+  // Symbol kind distribution
+  if (Object.keys(kindCounts).length > 0) {
+    heuristicSignals.push({
+      kind: "possible_declarations",
+      evidence: Object.entries(kindCounts)
+        .map(([k, c]) => `${c} ${k}(s)`)
+        .join(", "),
+      confidence: isTsJs ? "medium" : "low",
+    });
+  }
+
+  // File kind signal
+  heuristicSignals.push({
+    kind: "file_kind",
+    evidence: `Detected as ${fileKind} (language: ${lang})`,
+    confidence: fileKind === "unknown" ? "low" : "medium",
+  });
+
+  // Truncation signal
+  if (truncated) {
+    heuristicSignals.push({
+      kind: "truncation",
+      evidence: `${omittedChars} chars omitted; tail content beyond char ${text.indexOf("\n[... ") >= 0 ? "marker" : "limit"} not scanned`,
+      confidence: "medium",
+    });
+  }
+
+  // 9. Build uncertainties — explicitly state fallback limitations
   const uncertainties: FallbackSummarizeResult["uncertainties"] = [
     {
       topic: "Summary accuracy",
       reason:
-        "Heuristic-based summary — function bodies not analyzed. " +
-        "The summary is based solely on structural patterns (declarations, " +
-        "imports, exports) and does not reflect runtime behavior or logic.",
+        "Heuristic-based structural scan — function bodies, control flow, " +
+        "error handling, side effects, and algorithmic complexity are NOT analyzed. " +
+        "This is a regex-based scan for possible declarations, not a semantic summary.",
       suggested_verification:
-        "Review the file manually or use the primary model-based summarizer " +
-        "for a more accurate analysis.",
+        "Use the primary model-based summarizer for semantic analysis, " +
+        "or review the file manually.",
     },
     {
       topic: "Behavior and logic",
       reason:
-        "Logic and behavior not evaluated. Control flow, error handling, " +
-        "side effects, and algorithmic complexity are not assessed by the " +
-        "fallback summarizer.",
+        "Runtime behavior, async patterns, error propagation, and business " +
+        "logic are not evaluated by the fallback structural scanner.",
       suggested_verification:
         "Run tests, review critical paths, or request a full model analysis.",
     },
@@ -871,26 +992,36 @@ export function summarizeFileFallback(
       topic: "Symbol visibility",
       reason:
         "Exported vs internal symbols may not be distinguished correctly. " +
-        "The regex-based extraction does not fully resolve re-exports " +
+        "The regex-based extraction does not resolve re-exports " +
         "(`export { X } from ...`), default exports, or namespace re-exports.",
       suggested_verification:
-        "Check the module's public API surface manually or via the primary " +
-        "summarizer.",
-    },
-    {
-      topic: "Cross-language accuracy",
-      reason:
-        "Regex patterns are tuned primarily for TypeScript / JavaScript " +
-        "and may miss or mis-classify symbols in other languages.",
-      suggested_verification:
-        "If the file is not TypeScript/JavaScript, manually review symbols.",
+        "Check the module's public API surface manually or via the primary summarizer.",
     },
   ];
 
+  // Non-TS/JS: explicit cross-language uncertainty
+  if (!isTsJs) {
+    uncertainties.push({
+      topic: "Cross-language accuracy (fallback)",
+      reason:
+        `This file (${lang}) is not TypeScript/JavaScript. ` +
+        "The regex-based fallback patterns are tuned primarily for TS/JS " +
+        "and may miss or mis-classify symbols. Symbol extraction is " +
+        "low-confidence for this language.",
+      suggested_verification:
+        "For accurate analysis of non-TS/JS files, use the primary " +
+        "model-based summarizer which understands language-specific semantics.",
+    });
+  }
+
+  // Truncation uncertainty
   if (truncated) {
     uncertainties.push({
-      topic: "Truncated content",
-      reason: `File was truncated at ${limitChars} characters (original size: ${rawText.length}). Symbols and evidence beyond this limit were not extracted.`,
+      topic: "Truncated content (fallback)",
+      reason:
+        `File truncated: ${omittedChars} characters omitted. ` +
+        "Smart truncation preserves both prefix and suffix, but the " +
+        "middle section was not scanned for symbols or declarations.",
       suggested_verification:
         "Increase maxChars or use the model-based summarizer for complete analysis.",
     });
@@ -912,6 +1043,7 @@ export function summarizeFileFallback(
     ...(coveredBehaviors ? { covered_behaviors: coveredBehaviors } : {}),
     evidence: allEvidence,
     uncertainties,
+    heuristic_signals: heuristicSignals,
     must_verify_in_source: true,
     is_authoritative: false,
   };

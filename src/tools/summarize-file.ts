@@ -244,6 +244,8 @@ async function tryModelSummarization(
         completion_tokens: usage?.completion_tokens,
         input_truncated: inputTruncated,
         fallback_used: false,
+        analysis_status: inputTruncated ? "partial" as const : "complete" as const,
+        model_attempted: true,
       },
     };
 
@@ -352,6 +354,7 @@ function buildFallbackResult(
     important_sections: fallbackData.important_sections,
     test_cases: fallbackData.test_cases,
     covered_behaviors: fallbackData.covered_behaviors,
+    heuristic_signals: fallbackData.heuristic_signals,
     evidence: fallbackData.evidence,
     uncertainties: fallbackData.uncertainties,
     must_verify_in_source: fallbackData.must_verify_in_source,
@@ -362,6 +365,9 @@ function buildFallbackResult(
       tokens_used: 0,
       input_truncated: inputTruncated,
       fallback_used: true,
+      analysis_status: "partial" as const,
+      model_attempted: false,
+      model_skip_reason: "model_not_configured",
     },
   };
   } // handleImpl

@@ -34,6 +34,7 @@ const SERVER_VERSION = (
 const SUMMARIZE_FILE_OUTPUT_SCHEMA = {
   type: "object" as const,
   properties: {
+    analysis_status: { type: "string", enum: ["complete", "partial", "incomplete"] },
     summary: { type: "string" },
     important_symbols: {
       type: "array",
@@ -41,7 +42,7 @@ const SUMMARIZE_FILE_OUTPUT_SCHEMA = {
         type: "object",
         properties: {
           name: { type: "string" },
-          kind: { type: "string", enum: ["function", "class", "interface", "type", "const", "enum", "unknown"] },
+          kind: { type: "string", enum: ["function", "class", "struct", "interface", "type", "const", "enum", "unknown"] },
           role: { type: "string" },
           location: { type: "string" },
         },
@@ -71,6 +72,42 @@ const SUMMARIZE_FILE_OUTPUT_SCHEMA = {
     },
     must_verify_in_source: { type: "boolean" },
     is_authoritative: { type: "boolean", const: false },
+    important_sections: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          heading: { type: "string" },
+          role: { type: "string" },
+          location: { type: "string" },
+        },
+      },
+    },
+    test_cases: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          behavior: { type: "string" },
+          location: { type: "string" },
+        },
+      },
+    },
+    covered_behaviors: { type: "array", items: { type: "string" } },
+    file_kind: { type: "string", enum: ["code", "markdown", "text", "test", "unknown"] },
+    heuristic_signals: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          kind: { type: "string" },
+          location: { type: "string" },
+          evidence: { type: "string" },
+          confidence: { type: "string", enum: ["low", "medium"] },
+        },
+      },
+    },
     _meta: {
       type: "object",
       properties: {
@@ -80,6 +117,10 @@ const SUMMARIZE_FILE_OUTPUT_SCHEMA = {
         completion_tokens: { type: "integer" },
         input_truncated: { type: "boolean" },
         fallback_used: { type: "boolean" },
+        analysis_status: { type: "string", enum: ["complete", "partial", "incomplete"] },
+        model_attempted: { type: "boolean" },
+        model_skip_reason: { type: "string" },
+        model_failure_reason: { type: "string" },
       },
     },
   },

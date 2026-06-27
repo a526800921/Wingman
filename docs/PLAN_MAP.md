@@ -66,7 +66,7 @@ ADR-0001 模型优先
 | `docs/plans/command-output-response-contract-recovery.md` | 施工计划 | **已完成** (2026-06-20) | Round 4 阻断回归；优先于 command-output 后续优化与 parser 收缩 |
 | `docs/phase2-tools-validation-plan.md` | 验证战略 | Active | P0 已拆到 `phase2-validation-p0-plan.md` |
 | `docs/phase2-validation-p0-plan.md` | 施工计划 | 已建立基础 | fixtures、expectations、契约和预算测试已存在 |
-| `docs/plans/summarize-file-model-first.md` | 施工计划 | 待实施 | 依赖 shared runtime、migration note |
+| `docs/plans/summarize-file-model-first.md` | 施工计划 | 待实施 | 依赖 shared runtime、migration note；纳入 TranslateBar Swift 报告证据 |
 | `docs/plans/compress-text-model-first.md` | 施工计划 | 待实施 | 依赖 shared runtime、migration note |
 | `docs/plans/review-tools-consolidation.md` | 施工计划 | 待实施 | 优先于 summarize/compress；依赖 canonical diff path |
 | `docs/migrations/model-first-output-schema.md` | Migration note | Active | 约束所有公开输出 schema 变更 |

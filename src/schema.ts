@@ -66,6 +66,7 @@ export const ImportantSymbolSchema = z.strictObject({
   kind: z.enum([
     "function",
     "class",
+    "struct",
     "interface",
     "type",
     "const",
@@ -159,6 +160,15 @@ export const FileKindSchema = z.enum([
 ]);
 export type FileKind = z.infer<typeof FileKindSchema>;
 
+// Heuristic signal (used by multiple tools)
+export const HeuristicSignalSchema = z.strictObject({
+  kind: z.string(),
+  location: z.string().optional(),
+  evidence: z.string(),
+  confidence: z.enum(["low", "medium"]),
+});
+export type HeuristicSignal = z.infer<typeof HeuristicSignalSchema>;
+
 // ---------------------------------------------------------------------------
 // 输出 schemas
 // ---------------------------------------------------------------------------
@@ -175,6 +185,7 @@ export const SummarizeFileOutput = authoritativeMarker.merge(
     test_cases: z.array(TestCaseSchema).optional(),
     covered_behaviors: z.array(z.string()).optional(),
     file_kind: FileKindSchema.optional(),
+    heuristic_signals: z.array(HeuristicSignalSchema).optional(),
     _meta: ResultMetaSchema,
   }),
 );
@@ -191,14 +202,6 @@ export const CompressTextOutput = authoritativeMarker.merge(
   }),
 );
 export type CompressTextOutput = z.infer<typeof CompressTextOutput>;
-
-export const HeuristicSignalSchema = z.strictObject({
-  kind: z.string(),
-  location: z.string().optional(),
-  evidence: z.string(),
-  confidence: z.enum(["low", "medium"]),
-});
-export type HeuristicSignal = z.infer<typeof HeuristicSignalSchema>;
 
 export const ReviewDiffOutput = authoritativeMarker.merge(
   z.strictObject({
