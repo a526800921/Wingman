@@ -166,9 +166,11 @@ claude mcp add -s project wingman -- node "$(pwd)/dist/index.js"
 
 Wingman 支持云端模型和本地模型两种接入方式。两者都需要提供 OpenAI-compatible `/v1/chat/completions` 接口；未配置 API key 时会进入 heuristic fallback。
 
+配置默认只读取 MCP 注册时传入的环境变量或 shell 环境变量，不会自动读取当前项目的 `.env`。如需使用 env 文件，显式设置 `AUX_ENV_FILE=/absolute/path/to/.env`。
+
 ### 云端模型
 
-创建或编辑 `.env`：
+环境变量示例：
 
 ```env
 AUX_MODEL_API_KEY=your-api-key
@@ -192,6 +194,7 @@ AUX_LOG_FILE=/path/to/Wingman/.aux-model.log
 | `AUX_MODEL_TIMEOUT_MS` | 否 | `30000` | 请求超时，单位毫秒 |
 | `AUX_MODEL_ALLOWED_HOSTS` | 否 | — | 允许的 API host，逗号分隔 |
 | `AUX_MODEL_DISABLE_THINKING` | 否 | `false` | 为 Qwen 等模型附加 `chat_template_kwargs.enable_thinking=false` |
+| `AUX_ENV_FILE` | 否 | — | 显式加载的 env 文件路径；未设置时不会读取 `.env` |
 | `AUX_WORKSPACE_ROOT` | 否 | 当前进程目录 | 文件读取根目录 |
 | `AUX_ALLOW_INSECURE_LOCAL_HTTP` | 否 | `false` | 仅允许 loopback 的本地 HTTP |
 | `AUX_LOG_LEVEL` | 否 | `info` | `debug/info/warn/error` |

@@ -13,11 +13,25 @@
  * - 计数一致性
  */
 
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import { strict as assert } from "node:assert";
 import { ChatClient, ChatClientError } from "../src/chat-client.js";
 import type { AppConfig } from "../src/config.js";
 import { handleCompressCommandOutput } from "../src/tools/compress-command-output.js";
+
+const savedModelApiKey = process.env.AUX_MODEL_API_KEY;
+
+before(() => {
+  process.env.AUX_MODEL_API_KEY = "test-key";
+});
+
+after(() => {
+  if (savedModelApiKey) {
+    process.env.AUX_MODEL_API_KEY = savedModelApiKey;
+  } else {
+    delete process.env.AUX_MODEL_API_KEY;
+  }
+});
 
 // ── Fixture ──────────────────────────────────────────────
 

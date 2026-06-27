@@ -1,18 +1,18 @@
 /**
- * 配置读取 — 从环境变量读取，优先 shell 环境再 fallback 到本机 .env。
+ * 配置读取 — 默认只从进程环境变量读取。
  * API key 永不写入 .mcp.json。
+ * 如需本地 env 文件，显式设置 AUX_ENV_FILE=/absolute/path/to/.env。
  */
 
 import { readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { logger } from "./logger.js";
 
-/** 尝试从本机 .env 文件加载（不提交到 git） */
+/** 显式指定时才从 env 文件加载，避免 npm 包意外读取调用方项目配置。 */
 function loadDotEnv(): void {
+  const envPath = process.env.AUX_ENV_FILE;
+  if (!envPath) return;
+
   try {
-    const __filename = fileURLToPath(import.meta.url);
-    const envPath = resolve(dirname(__filename), "..", ".env");
     const content = readFileSync(envPath, "utf-8");
     for (const line of content.split("\n")) {
       const trimmed = line.trim();
@@ -26,9 +26,12 @@ function loadDotEnv(): void {
         process.env[key] = val;
       }
     }
-    logger.debug(".env loaded");
-  } catch {
-    // .env 文件不存在是正常情况
+    logger.debug("env file loaded", { envPath });
+  } catch (err) {
+    logger.warn("env file load failed", {
+      envPath,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -55,7 +58,8 @@ function requireEnv(key: string): string {
   if (!val) {
     throw new Error(
       `Missing required environment variable: ${key}. ` +
-        `Set it in shell or a local .env file. Do NOT store API keys in .mcp.json.`,
+        `Set it in the process environment or via AUX_ENV_FILE. ` +
+        `Do NOT store API keys in .mcp.json.`,
     );
   }
   return val;
