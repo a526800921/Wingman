@@ -56,7 +56,7 @@ OUTPUT SCHEMA:
   "important_symbols": [
     {
       "name": "string",
-      "kind": "function|class|struct|interface|type|const|enum|unknown",
+      "kind": "function|class|struct|interface|type|const|enum|property|variable|method|unknown",
       "role": "string — one-line description of what this symbol does",
       "location": "string — approximate line number or region (optional)"
     }

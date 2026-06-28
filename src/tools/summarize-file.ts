@@ -211,6 +211,57 @@ async function tryModelSummarization(
       return buildFallbackResult(config.workspaceRoot, userPath, fileContent, maxChars, inputTruncated, provider, traceMeta, true);
     }
 
+    // Step 5e½: normalize model output — tolerant camelCase + missing defaults
+    // Qwen and other models may produce camelCase keys or omit must_verify_in_source.
+    // We repair these before validation so legitimate semantic output isn't rejected.
+    const parsedObj = parsed as Record<string, unknown>;
+
+    // Normalize known camelCase → snake_case field names
+    const CAMEL_CASE_MAP: Record<string, string> = {
+      must_verifyIn_source: "must_verify_in_source",
+      importantSymbols: "important_symbols",
+      fileKind: "file_kind",
+      importantSections: "important_sections",
+      testCases: "test_cases",
+      coveredBehaviors: "covered_behaviors",
+      heuristicSignals: "heuristic_signals",
+    };
+    for (const [camel, snake] of Object.entries(CAMEL_CASE_MAP)) {
+      if (snake in parsedObj || !(camel in parsedObj)) continue;
+      parsedObj[snake] = parsedObj[camel];
+      delete parsedObj[camel];
+    }
+
+    // must_verify_in_source: default to true when missing (safe default)
+    if (!("must_verify_in_source" in parsedObj)) {
+      parsedObj.must_verify_in_source = true;
+    }
+
+    // important_symbols[*].kind: map unrecognized values to "unknown"
+    // (also handles models that output "property", "variable", etc. for non-TS languages)
+    const VALID_SYMBOL_KINDS = new Set([
+      "function", "class", "struct", "interface", "type", "const", "enum",
+      "property", "variable", "method", "unknown",
+    ]);
+    const symbols = parsedObj.important_symbols;
+    if (Array.isArray(symbols)) {
+      let normalizedKindCount = 0;
+      for (const s of symbols) {
+        if (typeof s !== "object" || s === null) continue;
+        const sym = s as Record<string, unknown>;
+        if (typeof sym.kind === "string" && !VALID_SYMBOL_KINDS.has(sym.kind)) {
+          sym.kind = "unknown";
+          normalizedKindCount++;
+        }
+      }
+      if (normalizedKindCount > 0) {
+        log.info("summarize_file: normalized unrecognized symbol kinds to 'unknown'", {
+          normalizedKindCount,
+          totalSymbols: symbols.length,
+        });
+      }
+    }
+
     // Step 5f: evidence verification + attach _meta
     let evidenceRejectedCount: number | undefined;
     const modelSymbols = (parsed as Record<string, unknown>).important_symbols;
