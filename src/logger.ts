@@ -7,10 +7,10 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 
-const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
+const LOG_LEVELS = ["off", "debug", "info", "warn", "error"] as const;
 type LogLevel = (typeof LOG_LEVELS)[number];
 
-const MIN_LEVEL: LogLevel = (process.env.AUX_LOG_LEVEL as LogLevel) ?? "info";
+const MIN_LEVEL: LogLevel = (process.env.AUX_LOG_LEVEL as LogLevel) ?? "off";
 
 /** 日志文件路径，第一次写日志时延迟解析（确保 .env 已加载）。 */
 let LOG_FILE: string | null | undefined = undefined;
