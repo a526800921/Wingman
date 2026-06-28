@@ -8,10 +8,11 @@
 |---:|---|---|---|---|
 | 1 | P0 | TranslateBar 真实报告可靠性 | 已完成；后续 summarize/review 迁移仍受该真实报告约束 | `docs/plans/wingman-mcp-translatebar-report-reliability.md` |
 | 2 | P0.5 | 反馈引导与可复现性增强 | 已完成；从未完成队列移出 | `docs/plans/feedback-guidance-reproducibility.md` |
-| 3 | P2 | shared model-runtime 与 mock model 测试 | 待拆为专项施工计划；当前仍由战略设计跟踪 | `docs/model-first-all-tools-review-plan.md` |
-| 4 | P3 | review_diff / review_diff_by_file 收敛 | 待实施 | `docs/plans/review-tools-consolidation.md` |
-| 5 | P4 | summarize_file 模型优先迁移 | 待实施 | `docs/plans/summarize-file-model-first.md` |
-| 6 | P5 | compress_text 模型优先迁移 | 待实施 | `docs/plans/compress-text-model-first.md` |
+| 3 | P1 | MCP 工具调用与 token 统计 | 已完成；新增 aux_tool_stats + 落盘路径统一至 ~/.wingman/ | `docs/plans/tool-usage-stats.md` |
+| 4 | P2 | shared model-runtime 与 mock model 测试 | 待拆为专项施工计划；当前仍由战略设计跟踪 | `docs/model-first-all-tools-review-plan.md` |
+| 5 | P3 | review_diff / review_diff_by_file 收敛 | 待实施 | `docs/plans/review-tools-consolidation.md` |
+| 6 | P4 | summarize_file 模型优先迁移 | 待实施 | `docs/plans/summarize-file-model-first.md` |
+| 7 | P5 | compress_text 模型优先迁移 | 待实施 | `docs/plans/compress-text-model-first.md` |
 
 ## 已移出未完成队列
 
