@@ -486,10 +486,77 @@ export const ModelFirstResponseSchema = z.strictObject({
 });
 
 // ---------------------------------------------------------------------------
+// aux_report_tool_feedback 专用类型
+// ---------------------------------------------------------------------------
+
+export const ToolFeedbackIssueCategorySchema = z.enum([
+  "wrong_kind",
+  "self_contradiction",
+  "missing_evidence",
+  "hallucination",
+  "overconfident_fallback",
+  "schema_confusing",
+  "low_signal_output",
+  "missing_context",
+  "date_error",
+  "other",
+]);
+export type ToolFeedbackIssueCategory = z.infer<typeof ToolFeedbackIssueCategorySchema>;
+
+export const ToolFeedbackInputSchema = z.strictObject({
+  tool_name: z.string().min(1),
+  trace_id: z.string().optional(),
+  issue_category: ToolFeedbackIssueCategorySchema,
+  severity: SeveritySchema,
+  summary: z.string().min(1).max(500),
+  evidence: z.string().max(1000).optional(),
+  expected_behavior: z.string().max(500).optional(),
+  actual_behavior: z.string().max(500).optional(),
+  confidence: ConfidenceSchema,
+}).superRefine((data, ctx) => {
+  const textFields = [
+    data.summary,
+    data.evidence,
+    data.expected_behavior,
+    data.actual_behavior,
+  ];
+  for (const field of textFields) {
+    if (!field) continue;
+    // Reject API key patterns (e.g. sk-abc123...)
+    if (/sk-[a-zA-Z0-9]{10,}/.test(field)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "sensitive content rejected: API key pattern (sk-...) detected in feedback text",
+        fatal: true,
+      });
+      return;
+    }
+    // Reject Authorization headers and Bearer tokens
+    if (/Authorization:\s*Bearer/i.test(field) || /Bearer\s+[a-zA-Z0-9._\-]+/i.test(field)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "sensitive content rejected: Authorization header or Bearer token detected in feedback text",
+        fatal: true,
+      });
+      return;
+    }
+  }
+});
+export type ToolFeedbackInput = z.infer<typeof ToolFeedbackInputSchema>;
+
+export const ToolFeedbackOutputSchema = z.strictObject({
+  recorded: z.boolean(),
+  feedback_id: z.string(),
+  log_file: z.string().nullable(),
+  is_authoritative: z.literal(false),
+});
+export type ToolFeedbackOutput = z.infer<typeof ToolFeedbackOutputSchema>;
+
+// ---------------------------------------------------------------------------
 // 输入 / 输出 schema 注册表（供 validateInput / validateOutput 使用）
 // ---------------------------------------------------------------------------
 
-type ToolName = "aux_summarize_file" | "aux_compress_text" | "aux_review_diff" | "aux_review_diff_by_file" | "aux_compress_command_output";
+type ToolName = "aux_summarize_file" | "aux_compress_text" | "aux_review_diff" | "aux_review_diff_by_file" | "aux_compress_command_output" | "aux_report_tool_feedback";
 
 const inputSchemas: Record<ToolName, z.ZodTypeAny> = {
   aux_summarize_file: SummarizeFileInput,
@@ -497,6 +564,7 @@ const inputSchemas: Record<ToolName, z.ZodTypeAny> = {
   aux_review_diff: ReviewDiffInput,
   aux_review_diff_by_file: ReviewDiffByFileInput,
   aux_compress_command_output: CompressCommandOutputInput,
+  aux_report_tool_feedback: ToolFeedbackInputSchema,
 };
 
 const outputSchemas: Record<ToolName, z.ZodTypeAny> = {
@@ -505,6 +573,7 @@ const outputSchemas: Record<ToolName, z.ZodTypeAny> = {
   aux_review_diff: ReviewDiffOutput,
   aux_review_diff_by_file: ReviewDiffByFileOutput,
   aux_compress_command_output: CompressCommandOutputOutput,
+  aux_report_tool_feedback: ToolFeedbackOutputSchema,
 };
 
 // ---------------------------------------------------------------------------

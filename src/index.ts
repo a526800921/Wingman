@@ -21,6 +21,7 @@ import { handleCompressText } from "./tools/compress-text.js";
 import { handleReviewDiff } from "./tools/review-diff.js";
 import { handleReviewDiffByFile } from "./tools/review-diff-by-file.js";
 import { handleCompressCommandOutput } from "./tools/compress-command-output.js";
+import { handleReportToolFeedback } from "./tools/report-tool-feedback.js";
 
 const SERVER_NAME = "wingman";
 const SERVER_VERSION = (
@@ -552,6 +553,59 @@ const COMPRESS_COMMAND_OUTPUT_TOOL_DEFINITION = {
   outputSchema: COMPRESS_COMMAND_OUTPUT_OUTPUT_SCHEMA,
 };
 
+const REPORT_TOOL_FEEDBACK_OUTPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    recorded: { type: "boolean" },
+    feedback_id: { type: "string" },
+    log_file: { type: ["string", "null"] },
+    is_authoritative: { type: "boolean", const: false },
+  },
+  required: ["recorded", "feedback_id", "log_file", "is_authoritative"],
+};
+
+const REPORT_TOOL_FEEDBACK_TOOL_DEFINITION = {
+  name: "aux_report_tool_feedback",
+  description:
+    "报告 Wingman 工具输出中的质量问题。调用方模型发现工具结果不可信、不完整或误导时，通过此工具提交结构化反馈。反馈写入本地 JSONL 文件，不修改原工具输出。",
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      tool_name: { type: "string", description: "必填，被反馈的工具名称。" },
+      trace_id: { type: "string", description: "可选但强烈建议，被反馈工具调用的 trace ID，用于关联日志。" },
+      issue_category: {
+        type: "string",
+        enum: [
+          "wrong_kind",
+          "self_contradiction",
+          "missing_evidence",
+          "hallucination",
+          "overconfident_fallback",
+          "schema_confusing",
+          "low_signal_output",
+          "missing_context",
+          "date_error",
+          "other",
+        ],
+        description: "问题分类。",
+      },
+      severity: { type: "string", enum: ["low", "medium", "high", "critical"], description: "严重程度。" },
+      summary: { type: "string", maxLength: 500, description: "问题摘要，最多 500 字符。" },
+      evidence: { type: "string", maxLength: 1000, description: "可选，支持证据，最多 1000 字符。" },
+      expected_behavior: { type: "string", maxLength: 500, description: "可选，预期行为，最多 500 字符。" },
+      actual_behavior: { type: "string", maxLength: 500, description: "可选，实际行为，最多 500 字符。" },
+      confidence: { type: "string", enum: ["low", "medium", "high"], description: "报告置信度。" },
+    },
+    required: ["tool_name", "issue_category", "severity", "summary", "confidence"],
+  },
+  outputSchema: REPORT_TOOL_FEEDBACK_OUTPUT_SCHEMA,
+};
+
 // --- Server setup ---
 
 const server = new Server(
@@ -567,6 +621,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     REVIEW_DIFF_TOOL_DEFINITION,
     REVIEW_DIFF_BY_FILE_TOOL_DEFINITION,
     COMPRESS_COMMAND_OUTPUT_TOOL_DEFINITION,
+    REPORT_TOOL_FEEDBACK_TOOL_DEFINITION,
   ],
 }));
 
@@ -594,6 +649,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       break;
     case "aux_compress_command_output":
       result = await handleCompressCommandOutput(args ?? {}, config);
+      break;
+    case "aux_report_tool_feedback":
+      result = await handleReportToolFeedback(args ?? {}, config);
       break;
     default:
       result = {
