@@ -221,7 +221,7 @@ aux_review_diff_by_file
 - 如 `output_meta` 风险过高，可暂时仅允许字符串白名单字段，或从 schema 中去掉。
 - 聚合脚本展示逻辑可独立回滚，不影响反馈写入。
 
-## 10. 验证
+## 验证
 
 ```bash
 node --import tsx --test test/mcp-tool-feedback-loop.test.ts
@@ -240,12 +240,28 @@ detect_changes()
 
 ## 11. 完成定义
 
-- [ ] Step 0 红灯测试已确认并转绿。
-- [ ] `aux_report_tool_feedback` 支持可复现性字段。
-- [ ] 低质量分析输出包含反馈建议 `_meta`。
-- [ ] 5 个分析工具 description 与反馈工具互链。
-- [ ] 聚合报告显示 `repro_input_ref` 和 `assertion_hint`。
-- [ ] README 和 migration note 已更新。
-- [ ] `npm test`、`npm run build`、`npm run smoke` 通过。
-- [ ] `detect_changes` 结果已记录，索引缺口已说明。
-- [ ] `docs/PLAN_MAP.md` 或上位优先级计划状态已同步。
+- [x] Step 0 红灯测试已确认并转绿。
+- [x] `aux_report_tool_feedback` 支持可复现性字段。
+- [x] 低质量分析输出包含反馈建议 `_meta`。
+- [x] 5 个分析工具 description 与反馈工具互链。
+- [x] 聚合报告显示 `repro_input_ref` 和 `assertion_hint`。
+- [x] README 和 migration note 已更新。
+- [x] `npm test`、`npm run build`、`npm run smoke` 通过。
+- [x] `detect_changes` 结果已记录，索引缺口已说明。
+- [x] `docs/PLAN_MAP.md` 或上位优先级计划状态已同步。
+
+## 12. 完成记录
+
+- 完成日期：2026-06-28
+- 计划地图：`docs/PLAN_MAP.md` 已标记为已完成
+
+## 完成证据
+
+- Step 0 证据：schema 新字段、低质量输出反馈建议、description 互链和聚合脚本展示字段已转绿。
+- 验证证据：`node --import tsx --test test/mcp-tool-feedback-loop.test.ts`、`npm test`、`npm run build`、`npm run smoke` 已通过。
+- 治理证据：`docs/PLAN_MAP.md` 已标记为已完成。
+
+## 测试覆盖率
+
+- `test/mcp-tool-feedback-loop.test.ts` 覆盖反馈工具和可复现性字段。
+- 测试通过：完成定义已确认 `npm test`、`npm run build`、`npm run smoke` 通过。

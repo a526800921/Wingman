@@ -3,7 +3,7 @@
 ## 元数据
 
 - 文档类型：施工计划
-- 状态：Ready
+- 状态：待实施
 - 依赖：ADR-0001、shared model-runtime、model-first schema migration
 - 公开 schema 变化：可能，仅新增状态/信号字段
 

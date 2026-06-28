@@ -3,7 +3,7 @@
 ## 元数据
 
 - 文档类型：施工计划
-- 状态：Ready
+- 状态：待实施
 - 依赖：ADR-0001、shared model-runtime、model-first schema migration
 - 涉及工具：`aux_review_diff`、`aux_review_diff_by_file`
 - 公开 schema 变化：是，需兼容期

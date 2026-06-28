@@ -35,7 +35,7 @@
 6. 新增 `test/schema-analysis-status.test.ts`（21 tests）
 7. 更新 migration doc 和 PLAN_MAP
 
-## 4. 验证
+## 验证
 
 ```bash
 npm run build                  # 通过
@@ -46,10 +46,15 @@ grep -c ResultMetaSchema src/schema.ts     # 7
 detect_changes                  # 仅预期流程受影响
 ```
 
-## 5. 完成证据
+## 完成证据
 
 - 红灯 fixture：`test/schema-analysis-status.test.ts` 确认 `analysis_status` 缺失时 Zod reject
 - GitNexus impact：21 changed symbols, 42 affected processes（全部为预期的 handler 及调用链）
 - Implementation commits：(见 git log)
 - `docs/PLAN_MAP.md` 已更新
 - `docs/migrations/model-first-output-schema.md` 已更新
+
+## 测试覆盖率
+
+- `test/schema-analysis-status.test.ts` 覆盖 `analysis_status` 缺失拒绝、显式状态和 `_meta` schema 同步。
+- 测试通过：`npm test` 记录为 346 pass, 0 fail；`npm run build` 和 `npm run smoke` 通过。

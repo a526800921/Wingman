@@ -6,7 +6,7 @@
 - 评审提交：`9b87864 feat: command-output model response contract recovery`
 - 对应计划：`docs/plans/command-output-response-contract-recovery.md`
 - 原始报告：外部项目中的 `docs/aux-model-full-test-r4.md`
-- 初评结论：部分完成
+- 初评结论：未闭合
 - 复评结论：**全部问题已修复（2026-06-20）**
 
 ## 1. 总体结论
@@ -208,12 +208,12 @@ decoder 当前接受：
 - 精确断言 14 个独立位置，而不是仅判断 `>= 14`；
 - 保存脱敏后的汇总证据，不保存完整模型响应。
 
-### 3.7 文档与 Schema 同步未完成
+### 3.7 初评时文档与 Schema 同步未完成
 
-当前存在以下不一致：
+初评时存在以下不一致，后续修复与复评结论见第 6 节：
 
-- 施工计划元数据仍为 `Ready`；
-- 施工计划完成定义全部未勾选；
+- 施工计划元数据仍为旧状态；
+- 施工计划完成定义在初评时尚未勾选；
 - `docs/PLAN_MAP.md` 已标记为“已完成”；
 - `src/index.ts` 的 MCP output schema 未声明新增 `_meta` 字段；
 - `docs/migrations/model-first-output-schema.md` 未补充新增字段语义；

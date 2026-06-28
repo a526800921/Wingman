@@ -218,7 +218,7 @@ MCP 输入
   - summarize_file 对 TS/JS 既有 smoke 测试产生兼容性回归；
   - 模型路径 schema valid rate 明显下降。
 
-## 10. 验证
+## 验证
 
 ```text
 npm run build
@@ -250,3 +250,14 @@ docs/migrations/model-first-output-schema.md
 - [x] build、test、smoke 通过。
 - [x] `detect_changes()` 只包含预期流程。
 - [x] `docs/PLAN_MAP.md` 已更新为已完成或下一阶段状态。
+
+## 完成证据
+
+- Step 0 证据：xcodebuild 全绿误标、Swift fallback 误导参数、review diff 当前日期幻觉三个 fixtures 已确认并转绿。
+- 验证证据：`npm run build`、`npm test`、`npm run smoke` 和专项 fixtures 已通过。
+- 治理证据：`docs/PLAN_MAP.md` 已标记为已完成。
+
+## 测试覆盖率
+
+- 专项 fixture 覆盖 xcodebuild 全绿、Swift 服务类和当前日期 diff 三类回归。
+- 测试通过：完成定义已确认 build、test、smoke 通过。

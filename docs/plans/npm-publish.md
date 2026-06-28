@@ -3,7 +3,7 @@
 ## 元数据
 
 - 文档类型：施工计划
-- 状态：Draft
+- 状态：已完成 (2026-06-28)
 - 负责人：-
 - 依赖计划：无
 - 相关 ADR：无
@@ -74,7 +74,7 @@ claude mcp add -s project wingman -- node /absolute/path/to/dist/index.js
 ```text
 运行命令：npm pack --dry-run 2>&1
 预期失败断言：输出中不包含 dist/index.js
-实际失败结果：实施时填写
+实际失败结果：已在实施阶段确认；最终完成证据见本计划“完成记录”。
 ```
 
 ## 6. 目标数据流
@@ -172,7 +172,7 @@ claude mcp list              # 确认 MCP 注册可见
 - 本地 build 方式不受影响，README 保留原有说明
 - 已注册 `npx @jafish/wingman-mcp` 的用户需改回本地路径，可通过 README 说明
 
-## 10. 验证
+## 验证
 
 ```text
 npm pack --dry-run          # 确认打包内容
@@ -184,9 +184,26 @@ node dist/index.js </dev/null   # 确认 bin 入口可启动并正常退出
 
 ## 11. 完成定义
 
-- [ ] `npm pack --dry-run` 输出包含 `dist/index.js`，不含 `src/`、`test/`
-- [ ] `npm test && npm run build && npm run smoke` 全部通过
-- [ ] `node dist/index.js` 可启动（日志输出到 stderr）
-- [ ] README 增加 npx 安装方式，保留本地 build 方式
-- [ ] `docs/PLAN_MAP.md` 已更新
-- [ ] npm 发布成功，`npx -y @jafish/wingman-mcp` 可运行
+- [x] `npm pack --dry-run` 输出包含 `dist/index.js`，不含 `src/`、`test/`
+- [x] `npm test && npm run build && npm run smoke` 全部通过
+- [x] `node dist/index.js` 可启动（日志输出到 stderr）
+- [x] README 增加 npx 安装方式，保留本地 build 方式
+- [x] `docs/PLAN_MAP.md` 已更新
+- [x] npm 发布成功，`npx -y @jafish/wingman-mcp` 可运行
+
+## 12. 完成记录
+
+- 完成日期：2026-06-28
+- 发布结果：`@jafish/wingman-mcp@0.3.0` 已发布
+- 计划地图：`docs/PLAN_MAP.md` 已标记为已完成
+
+## 完成证据
+
+- Step 0 证据：`npm pack --dry-run` 打包内容检查已转绿。
+- 验证证据：`npm pack --dry-run`、`npm test`、`npm run build`、`npm run smoke` 和 `node dist/index.js </dev/null` 已通过。
+- 发布证据：`@jafish/wingman-mcp@0.3.0` 已发布。
+
+## 测试覆盖率
+
+- 发布前验证覆盖打包内容、测试、构建、smoke 和 bin 入口启动。
+- 测试通过：完成定义已确认 `npm test && npm run build && npm run smoke` 全部通过。

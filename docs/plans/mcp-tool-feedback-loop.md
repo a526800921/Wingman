@@ -296,7 +296,7 @@ confidence >= medium
 - `_meta.trace_id` 和 `_meta.tool_name` 为新增字段，回滚实现时可保留为空或不输出。
 - 聚合脚本失败不影响 MCP server。
 
-## 13. 验证（2026-06-28 执行通过）
+## 验证
 
 ```text
 npm run build        → 通过
@@ -319,3 +319,14 @@ detect_changes()     → 39 changed symbols, 68 affected, 17 files, risk_level: 
 - [x] migration note 已更新。
 - [x] build、test、smoke 通过。
 - [x] `detect_changes()` 只包含预期流程（39 symbols（含 2 个治理文档触及）, 68 processes 全部为 traceMeta 参数传递触及 + 治理文档收尾变更，无异外功能变更）。
+
+## 完成证据
+
+- Step 0 证据：反馈工具写入、trace id 暴露、日志禁用和敏感内容脱敏专项测试已转绿。
+- 验证证据：`npm run build`、`npm test`、`npm run smoke`、专项测试和聚合脚本手动测试均通过。
+- 治理证据：`docs/PLAN_MAP.md` 已标记为已完成。
+
+## 测试覆盖率
+
+- 专项测试 8/8 pass，覆盖 trace id 输出、反馈写入、日志禁用和敏感内容脱敏。
+- 测试通过：`npm test` 记录为 334 tests, 324 pass, 0 fail, 10 skipped；`npm run smoke` 记录为 10 pass, 0 fail。
