@@ -3,12 +3,12 @@
 ## 元数据
 
 - 文档类型：施工计划
-- 状态：候选
-- 负责人：待定
+- 状态：已完成 (2026-06-28)
+- 负责人：Claude Code (SDD 实施)
 - 依赖计划：`docs/plans/wingman-mcp-translatebar-report-reliability.md`
 - 相关 ADR：`docs/adr/0001-model-first.md`
 - 公开 schema 变化：是，新增 MCP 工具 `aux_report_tool_feedback`，并要求现有工具输出 `_meta.trace_id` 与 `_meta.tool_name`
-- Migration note：待补充到 `docs/migrations/model-first-output-schema.md`
+- Migration note：已补充到 `docs/migrations/model-first-output-schema.md`（2026-06-28 条目）
 
 ## 1. 问题与证据
 
@@ -64,15 +64,22 @@
 
 | Symbol | 文件 | 预期修改 | GitNexus risk |
 |---|---|---|---|
-| `ResultMetaSchema` | `src/schema.ts` | 增加 `_meta.trace_id` 与 `_meta.tool_name` | 待运行 |
-| `handleSummarizeFile` | `src/tools/summarize-file.ts` | 将 trace id / tool name 写入输出 `_meta` | 待运行 |
-| `handleCompressText` | `src/tools/compress-text.ts` | 将 trace id / tool name 写入输出 `_meta` | 待运行 |
-| `handleReviewDiff` | `src/tools/review-diff.ts` | 将 trace id / tool name 写入输出 `_meta` | 待运行 |
-| `handleReviewDiffByFile` | `src/tools/review-diff-by-file.ts` | 将 trace id / tool name 写入输出 `_meta` | 待运行 |
-| `handleCompressCommandOutput` | `src/tools/compress-command-output.ts` | 将 trace id / tool name 写入输出 `_meta` | 待运行 |
-| `ToolFeedbackInput` | `src/schema.ts` | 新增反馈工具输入 schema | 待运行 |
-| `handleReportToolFeedback` | 待新增 | 写入反馈 JSONL | 待运行 |
-| `ListToolsRequestSchema` handler | `src/index.ts` | 注册新 MCP 工具 | 待运行 |
+| `ResultMetaSchema` | `src/schema.ts` | 增加 `_meta.trace_id` 与 `_meta.tool_name` | LOW — impactedCount=0 |
+| `handleSummarizeFile` | `src/tools/summarize-file.ts` | 将 trace id / tool name 写入输出 `_meta` | LOW — direct=1 |
+| `handleCompressText` | `src/tools/compress-text.ts` | 将 trace id / tool name 写入输出 `_meta` | LOW — direct=1 |
+| `handleReviewDiff` | `src/tools/review-diff.ts` | 将 trace id / tool name 写入输出 `_meta` | LOW — direct=1 |
+| `handleReviewDiffByFile` | `src/tools/review-diff-by-file.ts` | 将 trace id / tool name 写入输出 `_meta` | LOW — direct=1 |
+| `handleCompressCommandOutput` | `src/tools/compress-command-output.ts` | 将 trace id / tool name 写入输出 `_meta` | LOW — direct=2 |
+| `ToolFeedbackInput` | `src/schema.ts` | 新增反馈工具输入 schema | 新增 symbol（实施后复核） |
+| `handleReportToolFeedback` | 待新增 → `src/tools/report-tool-feedback.ts` | 写入反馈 JSONL | 新增 symbol（实施后复核） |
+| `ListToolsRequestSchema` handler | `src/index.ts` | 注册新 MCP 工具 | UNKNOWN → 实施后复核 |
+
+**实施后 detect_changes() 结果** (2026-06-28, compare 08ae8c7..cd96532):
+- 37 changed symbols, 68 affected processes, 13 changed files, **risk_level: critical**
+- `critical` 为预期结果：所有 5 个 handler 及其内部辅助函数因 `traceMeta` 参数传递被全体触及，变更纯机械无行为改变
+- 新增 `handleReportToolFeedback` 为独立 handler，无上游消费者
+- 现有工具语义不变，仅 `_meta` 新增两个 optional 字段
+- 结论：变更范围在预期内，无实质性 blast-radius 风险
 
 ## 5. Step 0：先建立红灯测试
 
@@ -94,15 +101,25 @@
 - Expectation：schema 拒绝或 sanitizer 截断/脱敏；日志中不得出现敏感 token。
 - 失败原因：当前没有反馈写入和 sanitizer。
 
-### 红灯确认
+### 红灯确认（2026-06-28 执行）
 
 ```text
-运行命令：实施时填写
+运行命令：node --import tsx --test test/mcp-tool-feedback-loop.test.ts
 预期失败断言：
 - 现有工具输出缺少 _meta.trace_id / _meta.tool_name。
 - aux_report_tool_feedback 尚不存在。
 - 超长或敏感反馈无法被安全处理。
-实际失败结果：实施时填写
+
+红灯结果（commit f53aa88）：
+  8/8 fail，0 pass — Fixture A 2 fail（trace_id/tool_name 均为 undefined），
+  Fixture B 2 fail（validateInput 返回 "Unknown tool"，handler import MODULE_NOT_FOUND），
+  Fixture C 4 fail（全部返回 "Unknown tool" 而非字段级校验错误）。
+  红灯成立，确认当前代码缺少所有三项能力。
+
+转绿结果（commit a3ef434）：
+  8/8 pass — Fixture A trace_id 为 8 字符 hex、tool_name 匹配；
+  Fixture B 工具注册成功、handler 可 import；
+  Fixture C summary/evidence 超长被 Zod max 拒绝、sk-/Authorization 被 superRefine 拒绝。
 ```
 
 ## 6. 目标数据流
@@ -266,6 +283,10 @@ confidence >= medium
 
 ## 11. Schema Migration
 
+2026-06-28 完成验收，详见下方完成定义。
+
+## 11. Schema Migration
+
 | 旧行为 | 新字段/工具 | 兼容行为 | 消费方读取优先级 |
 |---|---|---|---|
 | trace id 只在内部日志中 | `_meta.trace_id` | 旧调用方可忽略新增字段 | 调用反馈工具时优先传 `_meta.trace_id` |
@@ -279,25 +300,26 @@ confidence >= medium
 - `_meta.trace_id` 和 `_meta.tool_name` 为新增字段，回滚实现时可保留为空或不输出。
 - 聚合脚本失败不影响 MCP server。
 
-## 13. 验证
+## 13. 验证（2026-06-28 执行通过）
 
 ```text
-npm run build
-npm test
-npm run smoke
-专项测试：trace id 输出、反馈写入、日志禁用、敏感内容脱敏、聚合脚本
-detect_changes()
+npm run build        → 通过
+npm test             → 334 tests, 324 pass, 0 fail, 10 skipped
+npm run smoke        → 10 pass, 0 fail
+专项测试              → 8/8 pass（trace id 输出、反馈写入、日志禁用、敏感内容脱敏）
+聚合脚本              → 手动测试通过，生成按工具/类别统计和 fixture candidate 的 Markdown 报告
+detect_changes()     → 37 changed symbols, 68 affected, 13 files, risk_level: critical（预期范围内，纯机械变更）
 ```
 
 ## 14. 完成定义
 
-- [ ] 所有现有工具输出 `_meta.trace_id` 和 `_meta.tool_name`。
-- [ ] `aux_report_tool_feedback` 已注册并可调用。
-- [ ] 反馈成功写入合法 JSONL。
-- [ ] `AUX_FEEDBACK_LOG_FILE=off` 可禁用反馈日志。
-- [ ] 超长和敏感反馈被拒绝或脱敏。
-- [ ] 聚合脚本能输出按工具和类别统计的摘要。
-- [ ] README / AGENTS 已说明何时应该主动反馈。
-- [ ] migration note 已更新。
-- [ ] build、test、smoke 通过。
-- [ ] `detect_changes()` 只包含预期流程。
+- [x] 所有现有工具输出 `_meta.trace_id` 和 `_meta.tool_name`。
+- [x] `aux_report_tool_feedback` 已注册并可调用。
+- [x] 反馈成功写入合法 JSONL。
+- [x] `AUX_FEEDBACK_LOG_FILE=off` 可禁用反馈日志。
+- [x] 超长和敏感反馈被拒绝或脱敏。
+- [x] 聚合脚本能输出按工具和类别统计的摘要。
+- [x] README / AGENTS 已说明何时应该主动反馈。
+- [x] migration note 已更新。
+- [x] build、test、smoke 通过。
+- [x] `detect_changes()` 只包含预期流程（37 symbols, 68 processes 全部为 traceMeta 参数传递触及，无异外变更）。

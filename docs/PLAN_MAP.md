@@ -72,7 +72,7 @@ ADR-0001 模型优先
 | `docs/command-output-model-payload-plan.md` | 施工计划 | 部分完成 | 覆盖紧凑 payload、单批和 enrichment |
 | `docs/plans/command-output-response-contract-recovery.md` | 施工计划 | **已完成** (2026-06-20) | Round 4 阻断回归；优先于 command-output 后续优化与 parser 收缩 |
 | `docs/plans/wingman-mcp-translatebar-report-reliability.md` | 施工计划 | **已完成** (2026-06-28) | TranslateBar 真实报告回归门禁；修复了 xcodebuild 全绿误标 failure、Swift fallback 误导参数、review diff 日期幻觉三类问题；新增 unified diagnostic fields |
-| `docs/plans/mcp-tool-feedback-loop.md` | 施工计划 | 候选 | 下一期消费方质量反馈闭环；依赖 TranslateBar 回归修复计划中 `_meta.trace_id` / `_meta.tool_name` 口径 |
+| `docs/plans/mcp-tool-feedback-loop.md` | 施工计划 | **已完成** (2026-06-28) | 消费方质量反馈闭环：新增 `aux_report_tool_feedback` 工具、`_meta.trace_id`/`_meta.tool_name` 暴露、聚合脚本、AGENTS 反馈指引 |
 | `docs/phase2-tools-validation-plan.md` | 验证战略 | Active | P0 已拆到 `phase2-validation-p0-plan.md` |
 | `docs/phase2-validation-p0-plan.md` | 施工计划 | 已建立基础 | fixtures、expectations、契约和预算测试已存在 |
 | `docs/plans/summarize-file-model-first.md` | 施工计划 | 待实施 | 依赖 shared runtime、migration note；纳入 TranslateBar Swift 报告证据 |
