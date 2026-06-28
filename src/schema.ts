@@ -41,6 +41,15 @@ export const ReportedTotalsSchema = z.strictObject({
   failed_files: z.number().int().nonnegative().optional(),
 });
 
+export const FeedbackReasonSchema = z.enum([
+  "fallback_used",
+  "partial_analysis",
+  "low_confidence",
+  "model_failure",
+  "evidence_rejected",
+]);
+export type FeedbackReason = z.infer<typeof FeedbackReasonSchema>;
+
 export const ResultMetaSchema = z.strictObject({
   provider: z.string().optional(),
   model: z.string(),
@@ -62,6 +71,9 @@ export const ResultMetaSchema = z.strictObject({
   // MCP Tool Feedback Loop: caller-facing identifiers
   trace_id: z.string().optional(),
   tool_name: z.string().optional(),
+  // Feedback guidance: prescriptive hints for callers
+  feedback_recommended: z.boolean().optional(),
+  feedback_reason: FeedbackReasonSchema.optional(),
 });
 export type ResultMeta = z.infer<typeof ResultMetaSchema>;
 
@@ -462,6 +474,16 @@ export const ToolFeedbackIssueCategorySchema = z.enum([
 ]);
 export type ToolFeedbackIssueCategory = z.infer<typeof ToolFeedbackIssueCategorySchema>;
 
+// White-listed output metadata that callers may attach to feedback.
+export const FeedbackOutputMetaSchema = z.strictObject({
+  analysis_status: AnalysisStatusSchema.optional(),
+  fallback_used: z.boolean().optional(),
+  confidence: ConfidenceSchema.optional(),
+  model_attempted: z.boolean().optional(),
+  model_response_status: z.string().optional(),
+});
+export type FeedbackOutputMeta = z.infer<typeof FeedbackOutputMetaSchema>;
+
 export const ToolFeedbackInputSchema = z.strictObject({
   tool_name: z.string().min(1),
   trace_id: z.string().optional(),
@@ -472,12 +494,20 @@ export const ToolFeedbackInputSchema = z.strictObject({
   expected_behavior: z.string().max(500).optional(),
   actual_behavior: z.string().max(500).optional(),
   confidence: ConfidenceSchema,
+  // Reproducibility fields (optional)
+  repro_input_ref: z.string().max(500).optional(),
+  assertion_hint: z.string().max(500).optional(),
+  project_context: z.string().max(500).optional(),
+  output_meta: FeedbackOutputMetaSchema.optional(),
 }).superRefine((data, ctx) => {
   const textFields = [
     data.summary,
     data.evidence,
     data.expected_behavior,
     data.actual_behavior,
+    data.repro_input_ref,
+    data.assertion_hint,
+    data.project_context,
   ];
   for (const field of textFields) {
     if (!field) continue;
@@ -491,13 +521,33 @@ export const ToolFeedbackInputSchema = z.strictObject({
       return;
     }
     // Reject Authorization headers and Bearer tokens
-    if (/Authorization:\s*Bearer/i.test(field) || /Bearer\s+[a-zA-Z0-9._\-]+/i.test(field)) {
+    if (/Authorization:\s*Bearer/i.test(field) || /Bearer\s+[a-zA-Z0-9._\\-]+/i.test(field)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "sensitive content rejected: Authorization header or Bearer token detected in feedback text",
         fatal: true,
       });
       return;
+    }
+    // Reject full source code or diff blocks (>200 chars with code markers)
+    if (field.length > 200 && /(```|^[+\-]{3}\s|^@@\s|^diff\s|^index\s|function\s+\w+\s*\(|class\s+\w+)/m.test(field)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "sensitive content rejected: full source code or diff detected in feedback text",
+        fatal: true,
+      });
+      return;
+    }
+  }
+  // Reject output_meta with suspiciously large content
+  if (data.output_meta) {
+    const metaStr = JSON.stringify(data.output_meta);
+    if (metaStr.length > 2000) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "output_meta too large (max 2000 chars serialized)",
+        fatal: true,
+      });
     }
   }
 });

@@ -175,6 +175,8 @@ function buildFallbackOutput(
       tokens_used: 0,
       input_truncated: meta.input_truncated,
       fallback_used: true,
+      feedback_recommended: true as const,
+      feedback_reason: "fallback_used" as const,
       analysis_status: "partial" as const,
       chunking: meta,
       ...traceMeta,
@@ -314,7 +316,7 @@ export async function handleReviewDiffByFile(
       omitted_files: meta.omitted.map(o => ({ file: o.source ?? o.label, reason: o.reason })),
       is_authoritative: false,
       analysis_status: meta.input_truncated ? "partial" : "complete" as const,
-      _meta: { provider, model: (config as AppConfig).modelName, tokens_used: totalTokens, prompt_tokens: totalPromptTokens || undefined, completion_tokens: totalCompletionTokens || undefined, input_truncated: meta.input_truncated, fallback_used: false, chunking: meta, analysis_status: meta.input_truncated ? "partial" : "complete" as const, ...traceMeta, ...buildDiagnosticMeta({ analysisMode: "model_analysis", modelUsed: true, modelAttempted: true }) },
+      _meta: { provider, model: (config as AppConfig).modelName, tokens_used: totalTokens, prompt_tokens: totalPromptTokens || undefined, completion_tokens: totalCompletionTokens || undefined, input_truncated: meta.input_truncated, fallback_used: false, feedback_recommended: meta.input_truncated ? true as const : undefined, feedback_reason: meta.input_truncated ? "partial_analysis" as const : undefined, chunking: meta, analysis_status: meta.input_truncated ? "partial" : "complete" as const, ...traceMeta, ...buildDiagnosticMeta({ analysisMode: "model_analysis", modelUsed: true, modelAttempted: true }) },
     };
 
     const outValidation = validateOutput("aux_review_diff_by_file", output);

@@ -13,15 +13,20 @@
 ## 总体顺序
 
 ```text
-1. TranslateBar 验收补齐或撤回完成状态
-2. 反馈引导与可复现性增强
-3. analysis_status 与 schema migration 语义统一
-4. shared model-runtime 与 mock model 测试
-5. review_diff / review_diff_by_file 收敛
-6. summarize_file 模型优先迁移
-7. compress_text 模型优先迁移
-8. npm publish
+1. TranslateBar 验收补齐或撤回完成状态（P0）
+2. 反馈引导与可复现性增强（P0.5）
+3. shared model-runtime 与 mock model 测试（P2）
+4. review_diff / review_diff_by_file 收敛（P3）
+5. summarize_file 模型优先迁移（P4）
+6. compress_text 模型优先迁移（P5）
 ```
+
+### 已从未完成队列移出
+
+| 项目 | 专项计划 | 完成时间 |
+|---|---|---|
+| analysis_status 与 schema migration 语义统一 | `docs/plans/unify-analysis-status.md` | 2026-06-28 |
+| npm publish | `docs/plans/npm-publish.md` | 2026-06-28（v0.3.0 已发布） |
 
 ## P0：补齐 TranslateBar 验收缺口
 
@@ -55,61 +60,15 @@ detect_changes(scope: "compare", base_ref: "HEAD~1")
 
 ## P0.5：反馈引导与可复现性增强
 
-这是反馈闭环的小型前置任务。TranslateBar 中已有反馈说明，目前反馈内容足以排序和写计划，但还不完全足以自动转为回归 fixture。尤其是 Swift summarize 低质量反馈缺少可复现输入定位和断言提示。
+专项施工计划：`docs/plans/feedback-guidance-reproducibility.md`
 
-### 实施范围
+这是反馈闭环的小型前置任务。TranslateBar 反馈已足以排序和写计划，但还不足以自动转为回归 fixture——Swift summarize 低质量反馈缺少可复现输入定位和断言提示，且分析工具缺少反馈链路引导。
 
-- 给 5 个分析工具的 description 增加 `aux_report_tool_feedback` 交叉引用。
-- 在输出 `_meta` 中增加反馈建议字段，例如 `feedback_recommended: true` 或 `suggested_feedback: true`。
-- 触发条件包括：
-  - `fallback_used === true`；
-  - `analysis_status !== "complete"`；
-  - `confidence === "low"`；
-  - 模型响应失败；
-  - evidence 校验拒绝了关键 finding。
-- 扩展 `aux_report_tool_feedback` 输入 schema，新增可选字段：
-  - `repro_input_ref`：文件路径、fixture 名、命令标签或其他可复现输入引用；
-  - `assertion_hint`：希望回归测试断言什么；
-  - `project_context`：消费项目名，例如 `TranslateBar`；
-  - `output_meta`：低风险 `_meta` 摘要，例如 `analysis_status`、`fallback_used`、`confidence`、`model_attempted`。
-- 更新反馈日志聚合脚本，在 fixture candidates 中优先展示 `repro_input_ref` 和 `assertion_hint`。
-- 将已有 TranslateBar 反馈迁移或补录到统一用户目录 `~/.wingman/feedback.jsonl` 时，尽量补充 `project_context`。
+实施范围、Step 0 证据、完成门禁与实施步骤详见专项计划。关键契约已确认：
 
-### Step 0 证据
-
-- 使用 TranslateBar 旧反馈作为样本：
-  - `fb_20260628_4784e1`：Swift summarize 低信号输出，需要补可复现输入引用；
-  - `fb_20260628_5a1436`、`fb_20260628_708baa`、`fb_20260628_e23a9b`：工具缺少反馈引导。
-- 新增测试确认低质量输出会设置反馈建议字段。
-- 新增 schema 测试确认新可选字段可写入 JSONL，且仍受长度和敏感信息限制。
-
-### 完成门禁
-
-- fallback / partial / low confidence 场景返回反馈建议字段。
-- tool descriptions 能让调用方只看分析工具描述就发现反馈链路。
-- `aux_report_tool_feedback` 支持新增可复现性字段。
-- 聚合报告能展示 fixture candidates 的输入引用和断言提示。
-- `npm test`、`npm run build`、`npm run smoke`、`detect_changes` 通过。
-
-## P1：统一 analysis status 与 schema migration 语义
-
-这是所有模型优先迁移的公共契约底座。若不先统一，`summarize_file`、`compress_text` 和 review 工具会继续各自定义状态语义，造成后续漂移。
-
-### 实施范围
-
-- 移除或收紧 `AnalysisStatusSchema.default("complete")`。
-- 要求所有 handler 显式设置 `complete | partial | incomplete`。
-- 明确顶层 `analysis_status` 与 `_meta.analysis_status` 的读取优先级。
-- 统一 `ResultMetaSchema` 与各工具自定义 `_meta`。
-- 同步 `src/schema.ts` 与 `src/index.ts` MCP JSON schema。
-- 补充旧 payload 兼容 fixture。
-
-### 完成门禁
-
-- 模型成功、截断、部分失败、完全失败状态分别有测试。
-- fallback 路径显式返回 `partial` 或 `incomplete`。
-- README 和 tool description 不暗示 heuristic 等同完整分析。
-- `npm test`、`npm run build`、`npm run smoke` 通过。
+- `_meta` 只使用 `feedback_recommended` 和 `feedback_reason`（固定枚举），不得使用 `suggested_feedback` 等别名。
+- `output_meta` 仅允许白名单低风险字段。
+- 5 个分析工具 description 一次性更新，与 `aux_report_tool_feedback` 互链。
 
 ## P2：完善 shared model-runtime 与 mock model 测试
 
@@ -225,39 +184,6 @@ detect_changes(scope: "compare", base_ref: "HEAD~1")
 - 部分失败状态和 omitted 范围可见。
 - `npm test`、`npm run build`、`npm run smoke`、`detect_changes` 通过。
 
-## P6：npm publish
-
-最后执行。npm 发布不会改变 MCP 行为，但会放大前面所有契约问题。应等 P0-P3 至少稳定后再发布；若目标是质量发布，最好等 P4/P5 也完成。
-
-### 实施范围
-
-- `package.json` 添加 scoped package name、`bin`、`files` 和 `prepublishOnly`。
-- README 增加 npx 安装方式，同时保留本地 build 方式。
-- 使用 `npm pack --dry-run` 验证发布内容。
-- 手动执行 `npm publish`。
-
-### 完成门禁
-
-```bash
-npm pack --dry-run
-npm test
-npm run build
-npm run smoke
-node dist/index.js </dev/null
-```
-
-发布后验证：
-
-```bash
-npx -y @jafish/wingman-mcp </dev/null
-```
-
 ## 当前工作区前置处理
 
-进入 P0 实施前，建议先处理当前未提交文档变更，避免治理规范和功能修复混在一起：
-
-- `AGENTS.md` 已从 Git 跟踪中移除，本地文件保留；
-- `docs/PLAN_MAP.md` 有计划治理规范更新；
-- `docs/PLAN_TEMPLATE.md` 有计划模板更新。
-
-建议先单独提交或明确丢弃这些治理文档变更，再开始功能修复。
+进入 P0 实施前，建议先处理当前未提交变更（`src/schema.ts`、`src/tools/report-tool-feedback.ts`、`src/tools/summarize-file.ts`），避免治理规范和功能修复混在一起。建议先单独提交或明确丢弃这些变更，再开始功能修复。

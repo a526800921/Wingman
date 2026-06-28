@@ -119,6 +119,8 @@ const SUMMARIZE_FILE_OUTPUT_SCHEMA = {
         completion_tokens: { type: "integer" },
         input_truncated: { type: "boolean" },
         fallback_used: { type: "boolean" },
+        feedback_recommended: { type: "boolean" },
+        feedback_reason: { type: "string", enum: ["fallback_used", "partial_analysis", "low_confidence", "model_failure", "evidence_rejected"] },
         analysis_status: { type: "string", enum: ["complete", "partial", "incomplete"] },
         model_attempted: { type: "boolean" },
         model_skip_reason: { type: "string" },
@@ -138,7 +140,7 @@ const SUMMARIZE_FILE_OUTPUT_SCHEMA = {
 const SUMMARIZE_FILE_TOOL_DEFINITION = {
   name: "aux_summarize_file",
   description:
-    "摘要源码文件或文档文件。适合 >50 行的大文件快速了解结构。结果是辅助性、非权威的——Claude Code 在编辑/执行前必须回查原文。小文件请直接阅读。",
+    "摘要源码文件或文档文件。适合 >50 行的大文件快速了解结构。结果是辅助性、非权威的——Claude Code 在编辑/执行前必须回查原文。小文件请直接阅读。当输出 analysis_status 为 partial 或 incomplete、fallback_used 为 true、或 confidence 为 low 时，应通过 aux_report_tool_feedback 报告质量问题以便改进。",
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -184,6 +186,8 @@ const COMPRESS_TEXT_OUTPUT_SCHEMA = {
         completion_tokens: { type: "integer" },
         input_truncated: { type: "boolean" },
         fallback_used: { type: "boolean" },
+        feedback_recommended: { type: "boolean" },
+        feedback_reason: { type: "string", enum: ["fallback_used", "partial_analysis", "low_confidence", "model_failure", "evidence_rejected"] },
         analysis_status: { type: "string", enum: ["complete", "partial", "incomplete"] },
         model_attempted: { type: "boolean" },
         model_skip_reason: { type: "string" },
@@ -203,7 +207,7 @@ const COMPRESS_TEXT_OUTPUT_SCHEMA = {
 const COMPRESS_TEXT_TOOL_DEFINITION = {
   name: "aux_compress_text",
   description:
-    "把长文本压缩成结构化上下文。适合日志、错误栈、长文档。结果是辅助性、非权威的——Claude Code 在决策前必须回查原文。",
+    "把长文本压缩成结构化上下文。适合日志、错误栈、长文档。结果是辅助性、非权威的——Claude Code 在决策前必须回查原文。当输出 analysis_status 为 partial 或 incomplete、fallback_used 为 true、或 confidence 为 low 时，应通过 aux_report_tool_feedback 报告质量问题以便改进。",
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -287,6 +291,8 @@ const REVIEW_DIFF_OUTPUT_SCHEMA = {
         completion_tokens: { type: "integer" },
         input_truncated: { type: "boolean" },
         fallback_used: { type: "boolean" },
+        feedback_recommended: { type: "boolean" },
+        feedback_reason: { type: "string", enum: ["fallback_used", "partial_analysis", "low_confidence", "model_failure", "evidence_rejected"] },
         analysis_status: { type: "string", enum: ["complete", "partial", "incomplete"] },
         model_attempted: { type: "boolean" },
         model_skip_reason: { type: "string" },
@@ -306,7 +312,7 @@ const REVIEW_DIFF_OUTPUT_SCHEMA = {
 const REVIEW_DIFF_TOOL_DEFINITION = {
   name: "aux_review_diff",
   description:
-    "对 unified diff 做提交前 checklist 式审查。像 junior 拿着清单逐项打勾——确保没有遗漏明显的检查项，而非替代你的判断。适合快速扫查，不适合最终 review 决策或安全审计。结果是辅助性、非权威的——Claude Code 仍负责最终 review。",
+    "对 unified diff 做提交前 checklist 式审查。像 junior 拿着清单逐项打勾——确保没有遗漏明显的检查项，而非替代你的判断。适合快速扫查，不适合最终 review 决策或安全审计。结果是辅助性、非权威的——Claude Code 仍负责最终 review。当输出 analysis_status 为 partial 或 incomplete、fallback_used 为 true、或 confidence 为 low 时，应通过 aux_report_tool_feedback 报告质量问题以便改进。",
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -412,6 +418,8 @@ const REVIEW_DIFF_BY_FILE_OUTPUT_SCHEMA = {
         completion_tokens: { type: "integer" },
         input_truncated: { type: "boolean" },
         fallback_used: { type: "boolean" },
+        feedback_recommended: { type: "boolean" },
+        feedback_reason: { type: "string", enum: ["fallback_used", "partial_analysis", "low_confidence", "model_failure", "evidence_rejected"] },
         analysis_status: { type: "string", enum: ["complete", "partial", "incomplete"] },
         model_attempted: { type: "boolean" },
         model_skip_reason: { type: "string" },
@@ -519,6 +527,8 @@ const COMPRESS_COMMAND_OUTPUT_OUTPUT_SCHEMA = {
         completion_tokens: { type: "integer" },
         input_truncated: { type: "boolean" },
         fallback_used: { type: "boolean" },
+        feedback_recommended: { type: "boolean" },
+        feedback_reason: { type: "string", enum: ["fallback_used", "partial_analysis", "low_confidence", "model_failure", "evidence_rejected"] },
         chunking: { type: "object" },
         analysis_status: { type: "string", enum: ["complete", "partial", "incomplete"] },
         model_attempted: { type: "boolean" },
@@ -561,7 +571,7 @@ const COMPRESS_COMMAND_OUTPUT_OUTPUT_SCHEMA = {
 const REVIEW_DIFF_BY_FILE_TOOL_DEFINITION = {
   name: "aux_review_diff_by_file",
   description:
-    "按文件或 hunk 拆分大 diff 独立分析再汇总。适合多文件大 diff，替代 aux_review_diff 对大数据截断的缺陷。结果是辅助性、非权威的——Claude Code 仍负责最终 review。",
+    "按文件或 hunk 拆分大 diff 独立分析再汇总。适合多文件大 diff，替代 aux_review_diff 对大数据截断的缺陷。结果是辅助性、非权威的——Claude Code 仍负责最终 review。当输出 analysis_status 为 partial 或 incomplete、fallback_used 为 true、或 confidence 为 low 时，应通过 aux_report_tool_feedback 报告质量问题以便改进。",
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -583,7 +593,7 @@ const REVIEW_DIFF_BY_FILE_TOOL_DEFINITION = {
 const COMPRESS_COMMAND_OUTPUT_TOOL_DEFINITION = {
   name: "aux_compress_command_output",
   description:
-    "把命令输出（tsc/eslint/test/build/stack trace）压缩成结构化 findings。提取首个失败点、文件路径、行号、错误码，归并重复错误。结果是辅助性、非权威的——Claude Code 在决策前必须回查原文。",
+    "把命令输出（tsc/eslint/test/build/stack trace）压缩成结构化 findings。提取首个失败点、文件路径、行号、错误码，归并重复错误。结果是辅助性、非权威的——Claude Code 在决策前必须回查原文。当输出 analysis_status 为 partial 或 incomplete、fallback_used 为 true、或 confidence 为 low 时，应通过 aux_report_tool_feedback 报告质量问题以便改进。",
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -655,6 +665,20 @@ const REPORT_TOOL_FEEDBACK_TOOL_DEFINITION = {
       expected_behavior: { type: "string", maxLength: 500, description: "可选，预期行为，最多 500 字符。" },
       actual_behavior: { type: "string", maxLength: 500, description: "可选，实际行为，最多 500 字符。" },
       confidence: { type: "string", enum: ["low", "medium", "high"], description: "报告置信度。" },
+      repro_input_ref: { type: "string", maxLength: 500, description: "可选，可复现输入引用（如文件路径），用于生成 fixture。" },
+      assertion_hint: { type: "string", maxLength: 500, description: "可选，断言提示，描述如何验证修复。" },
+      project_context: { type: "string", maxLength: 500, description: "可选，消费项目标识，用于聚类分析。" },
+      output_meta: {
+        type: "object",
+        description: "可选，从分析工具 _meta 摘取的低风险元数据摘要（仅 white-listed 字段）。",
+        properties: {
+          analysis_status: { type: "string", enum: ["complete", "partial", "incomplete"] },
+          fallback_used: { type: "boolean" },
+          confidence: { type: "string", enum: ["low", "medium", "high"] },
+          model_attempted: { type: "boolean" },
+          model_response_status: { type: "string" },
+        },
+      },
     },
     required: ["tool_name", "issue_category", "severity", "summary", "confidence"],
   },

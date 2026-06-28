@@ -3,7 +3,7 @@
 ## 元数据
 
 - 文档类型：施工计划
-- 状态：待实施
+- 状态：已完成 (2026-06-28)
 - 负责人：Codex
 - 依赖计划：`docs/plans/mcp-tool-feedback-loop.md`
 - 相关计划：`docs/unfinished-implementation-priority-plan.md` P0.5

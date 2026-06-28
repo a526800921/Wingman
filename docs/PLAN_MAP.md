@@ -108,6 +108,7 @@ ADR-0001 模型优先
 | `docs/migrations/model-first-output-schema.md` | Migration note | 设计中 | 约束所有公开输出 schema 变更 |
 | `docs/plans/npm-publish.md` | 施工计划 | **已完成** (2026-06-28) | npm 发布配置（bin、files、npx 安装）；v0.3.0 已发布 |
 | `docs/plans/unify-analysis-status.md` | 施工计划 | **已完成** (2026-06-28) | 统一 analysis_status 语义与 schema migration；移除 default("complete")、统一 ResultMetaSchema、同步 JSON schema、handler 改用共享辅助函数 |
+| `docs/plans/feedback-guidance-reproducibility.md` | 施工计划 | **已完成** (2026-06-28) | 反馈引导与可复现性增强；5 工具低质量输出主动建议反馈、_meta 新增 feedback_recommended/reason、反馈 schema 新增可复现性字段、聚合脚本展示新字段 |
 
 状态只表示当前源码观察结果，不代表已发布版本承诺。实施完成后应更新本表并附验证命令。
 

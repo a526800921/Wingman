@@ -84,6 +84,15 @@ incomplete → 未形成可验证的完整分析
 - 读取优先级：顶层 `analysis_status` 为主；`_meta.analysis_status` 镜像提供，但不保证长期存在
 - `summarize_file` fallback 失败路径正确性修复：`"partial"` → `"incomplete"`（旧行为依赖 schema default）
 
+## 2026-06-28: 反馈引导与可复现性增强
+
+- `ResultMetaSchema` 新增 `feedback_recommended`（boolean）和 `feedback_reason`（enum: `fallback_used | partial_analysis | low_confidence | model_failure | evidence_rejected`），均为 optional
+- 5 个分析工具在低质量路径（fallback、truncation）自动设置 `feedback_recommended: true`
+- `ToolFeedbackInputSchema` 新增 4 个 optional 字段：`repro_input_ref`、`assertion_hint`、`project_context`、`output_meta`（white-listed）
+- 5 个分析工具 description 已加入 `aux_report_tool_feedback` 交叉引用
+- 聚合脚本 `summarize-feedback.ts` 展示可复现性字段
+- 敏感信息防护扩展至新字段（代码块检测、output_meta 大小限制）
+
 ## 调用方示例
 
 ```ts

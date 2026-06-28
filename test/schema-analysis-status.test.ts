@@ -131,6 +131,8 @@ describe("_meta contains all ResultMetaSchema fields", () => {
     limitations: [] as string[],
     trace_id: "abc123",
     tool_name: "test",
+    feedback_recommended: true as const,
+    feedback_reason: "fallback_used" as const,
   };
 
   function checkToolMeta(toolName: string, output: Record<string, unknown>) {

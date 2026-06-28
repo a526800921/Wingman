@@ -242,6 +242,8 @@ function buildFallbackResult(
       tokens_used: 0,
       input_truncated: inputTruncated,
       fallback_used: true,
+      feedback_recommended: true as const,
+      feedback_reason: "fallback_used" as const,
       analysis_status: fallbackStatus("model_not_configured", true),
       ...traceMeta,
       ...buildDiagnosticMeta({

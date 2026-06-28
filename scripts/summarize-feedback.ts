@@ -34,6 +34,11 @@ interface FeedbackEntry {
   expected_behavior?: string;
   actual_behavior?: string;
   confidence: string;
+  // Reproducibility fields
+  repro_input_ref?: string;
+  assertion_hint?: string;
+  project_context?: string;
+  output_meta?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -363,6 +368,18 @@ function renderReport(
       lines.push(
         `- **Actual:** ${escapeMd(entry.actual_behavior ?? "*not provided*")}`,
       );
+      if (entry.repro_input_ref) {
+        lines.push(`- **Repro Input:** ${escapeMd(entry.repro_input_ref)}`);
+      }
+      if (entry.assertion_hint) {
+        lines.push(`- **Assertion Hint:** ${escapeMd(entry.assertion_hint)}`);
+      }
+      if (entry.project_context) {
+        lines.push(`- **Project:** ${escapeMd(entry.project_context)}`);
+      }
+      if (entry.output_meta) {
+        lines.push(`- **Output Meta:** \`${escapeMd(JSON.stringify(entry.output_meta))}\``);
+      }
       lines.push("");
     });
   }

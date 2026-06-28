@@ -100,6 +100,11 @@ export async function handleReportToolFeedback(
   if (data.evidence !== undefined) entry.evidence = data.evidence;
   if (data.expected_behavior !== undefined) entry.expected_behavior = data.expected_behavior;
   if (data.actual_behavior !== undefined) entry.actual_behavior = data.actual_behavior;
+  // Reproducibility fields
+  if (data.repro_input_ref !== undefined) entry.repro_input_ref = data.repro_input_ref;
+  if (data.assertion_hint !== undefined) entry.assertion_hint = data.assertion_hint;
+  if (data.project_context !== undefined) entry.project_context = data.project_context;
+  if (data.output_meta !== undefined) entry.output_meta = data.output_meta;
 
   // ---- Step 5: write JSONL (best-effort) -----------------------------------
   let recorded = false;

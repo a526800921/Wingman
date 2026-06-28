@@ -206,4 +206,92 @@ describe("MCP Tool Feedback Loop — Step 0 Red Light Tests", () => {
       assert.match(result.error || "", /sensitive|Authorization|Bearer/i);
     });
   });
+
+  describe("Fixture D: reproducibility fields accepted and rejected correctly", () => {
+    it("accepts repro_input_ref, assertion_hint, project_context", () => {
+      const result = validateInput("aux_report_tool_feedback", {
+        tool_name: "aux_summarize_file",
+        issue_category: "low_signal_output",
+        severity: "medium",
+        summary: "low signal Swift summary",
+        confidence: "high",
+        repro_input_ref: "path/to/View.swift",
+        assertion_hint: "should detect services in class methods, not just ViewBuilder closures",
+        project_context: "TranslateBar",
+      });
+      assert.strictEqual(result.ok, true, "should accept reproducibility fields");
+    });
+
+    it("accepts output_meta with white-listed fields", () => {
+      const result = validateInput("aux_report_tool_feedback", {
+        tool_name: "aux_summarize_file",
+        issue_category: "missing_context",
+        severity: "high",
+        summary: "missing feedback suggestion",
+        confidence: "high",
+        output_meta: {
+          analysis_status: "partial",
+          fallback_used: true,
+          confidence: "low",
+          model_attempted: false,
+        },
+      });
+      assert.strictEqual(result.ok, true, "should accept white-listed output_meta");
+    });
+
+    it("rejects output_meta with unknown fields", () => {
+      const result = validateInput("aux_report_tool_feedback", {
+        tool_name: "test",
+        issue_category: "wrong_kind",
+        severity: "low",
+        summary: "test",
+        confidence: "low",
+        output_meta: {
+          analysis_status: "complete",
+          full_source: "entire file contents here...",
+        },
+      });
+      assert.strictEqual(result.ok, false, "should reject unknown output_meta fields");
+    });
+
+    it("rejects output_meta larger than 2000 chars serialized", () => {
+      const result = validateInput("aux_report_tool_feedback", {
+        tool_name: "test",
+        issue_category: "wrong_kind",
+        severity: "low",
+        summary: "test",
+        confidence: "low",
+        output_meta: {
+          analysis_status: "partial",
+          model_response_status: "x".repeat(2000),
+        },
+      });
+      assert.strictEqual(result.ok, false, "should reject oversized output_meta");
+    });
+
+    it("rejects code blocks in feedback text", () => {
+      const result = validateInput("aux_report_tool_feedback", {
+        tool_name: "test",
+        issue_category: "wrong_kind",
+        severity: "low",
+        summary: "test",
+        evidence: "function myFunc(param) {".repeat(10), // >200 chars with function keyword
+        confidence: "low",
+      });
+      assert.strictEqual(result.ok, false, "should reject source code in feedback");
+    });
+  });
+
+  describe("Fixture E: fallback output includes feedback_recommended", () => {
+    it("aux_compress_text fallback sets feedback_recommended", async () => {
+      const result = await handleCompressText(
+        { text: "Short test text for feedback check", label: "test" },
+        {},
+      );
+      assert.strictEqual(result.isError, false);
+      const text = JSON.parse(result.content[0].text);
+      assert.strictEqual(text._meta?.feedback_recommended, true);
+      assert.strictEqual(text._meta?.feedback_reason, "fallback_used");
+    });
+  });
 });

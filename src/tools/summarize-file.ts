@@ -251,6 +251,8 @@ async function tryModelSummarization(
         input_truncated: inputTruncated,
         fallback_used: false,
         analysis_status: modelPathStatus(true, false, inputTruncated),
+        feedback_recommended: inputTruncated ? true as const : undefined,
+        feedback_reason: inputTruncated ? "partial_analysis" as const : undefined,
         ...traceMeta,
         ...buildDiagnosticMeta({
           analysisMode: "model_analysis",
@@ -347,6 +349,8 @@ function buildFallbackResult(
         tokens_used: 0,
         input_truncated: inputTruncated,
         fallback_used: true,
+        feedback_recommended: true as const,
+        feedback_reason: "fallback_used" as const,
         analysis_status: fallbackStatus("model_not_configured", false),
         ...traceMeta,
         ...buildDiagnosticMeta({
@@ -384,6 +388,8 @@ function buildFallbackResult(
       tokens_used: 0,
       input_truncated: inputTruncated,
       fallback_used: true,
+      feedback_recommended: true as const,
+      feedback_reason: "fallback_used" as const,
       analysis_status: fallbackStatus("model_not_configured", true),
       ...traceMeta,
       ...buildDiagnosticMeta({
