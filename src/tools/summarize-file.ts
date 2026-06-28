@@ -208,7 +208,7 @@ async function tryModelSummarization(
       log.warn(
         "summarize_file: model returned non-JSON, falling back to heuristic",
       );
-      return buildFallbackResult(config.workspaceRoot, userPath, fileContent, maxChars, inputTruncated, provider, traceMeta);
+      return buildFallbackResult(config.workspaceRoot, userPath, fileContent, maxChars, inputTruncated, provider, traceMeta, true);
     }
 
     // Step 5f: evidence verification + attach _meta
@@ -262,7 +262,7 @@ async function tryModelSummarization(
         "summarize_file: model output failed schema validation, falling back to heuristic",
         { error: outputValidation.error },
       );
-      return buildFallbackResult(config.workspaceRoot, userPath, fileContent, maxChars, inputTruncated, provider, traceMeta);
+      return buildFallbackResult(config.workspaceRoot, userPath, fileContent, maxChars, inputTruncated, provider, traceMeta, true);
     }
 
     log.info("summarize_file: model summarization succeeded", {
@@ -285,7 +285,7 @@ async function tryModelSummarization(
       { error: message },
     );
 
-    return buildFallbackResult(config.workspaceRoot, userPath, fileContent, maxChars, inputTruncated, provider, traceMeta);
+    return buildFallbackResult(config.workspaceRoot, userPath, fileContent, maxChars, inputTruncated, provider, traceMeta, true);
   }
 }
 
@@ -307,6 +307,7 @@ function buildFallbackResult(
   inputTruncated: boolean,
   provider: string,
   traceMeta: ReturnType<typeof createTraceMeta>,
+  modelAttempted = false,
 ): SummarizeFileOutput {
   // If we were already in the fallback path (model unavailable), the
   // relativePath is the original user path and can be used directly.
@@ -322,6 +323,7 @@ function buildFallbackResult(
     log.error("summarize_file: fallback summarizer itself failed", {
       error: message,
     });
+    const skipReason = modelAttempted ? undefined : "model_not_configured";
     return {
       summary: `Failed to summarize file: ${message}`,
       important_symbols: [],
@@ -335,7 +337,7 @@ function buildFallbackResult(
       ],
       must_verify_in_source: true,
       is_authoritative: false,
-      analysis_status: fallbackStatus("model_not_configured", false),
+      analysis_status: fallbackStatus(skipReason ?? "model_unavailable", false),
       _meta: assembleBaseMeta({
           provider,
           modelName: "heuristic",
@@ -346,18 +348,19 @@ function buildFallbackResult(
           fallbackUsed: true,
           analysisMode: "heuristic_fallback",
           modelUsed: false,
-          modelAttempted: false,
-          modelSkipReason: "model_not_configured",
+          modelAttempted,
+          modelSkipReason: skipReason,
           limitations: ["Deterministic mechanical scan failed — no analysis performed. Read the file directly."],
           traceMeta,
-          overrides: { analysis_status: fallbackStatus("model_not_configured", false) },
+          overrides: { analysis_status: fallbackStatus(skipReason ?? "model_unavailable", false) },
         }),
     };
   }
 
+  const skipReason = modelAttempted ? undefined : "model_not_configured";
   return {
     summary: fallbackData.summary,
-    analysis_status: fallbackStatus("model_not_configured", false),
+    analysis_status: fallbackStatus(skipReason ?? "model_unavailable", false),
     file_kind: fallbackData.file_kind,
     important_symbols: fallbackData.important_symbols,
     important_sections: fallbackData.important_sections,
@@ -378,11 +381,11 @@ function buildFallbackResult(
       fallbackUsed: true,
       analysisMode: "heuristic_fallback",
       modelUsed: false,
-      modelAttempted: false,
-      modelSkipReason: "model_not_configured",
+      modelAttempted,
+      modelSkipReason: skipReason,
       limitations: ["Deterministic mechanical scan only — no semantic analysis performed. Use model-based summarizer or read the file directly."],
       traceMeta,
-      overrides: { analysis_status: fallbackStatus("model_not_configured", false) },
+      overrides: { analysis_status: fallbackStatus(skipReason ?? "model_unavailable", false) },
     }),
   };
   } // handleImpl

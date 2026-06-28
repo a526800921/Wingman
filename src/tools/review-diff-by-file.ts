@@ -136,6 +136,7 @@ function buildFallbackOutput(
   provider: string,
   meta: ChunkMeta,
   traceMeta: ReturnType<typeof createTraceMeta>,
+  modelAttempted = false,
 ): ReviewDiffByFileOutput {
   const fbFindings: DiffFinding[] = [];
   for (const fr of fb.files) {
@@ -156,6 +157,7 @@ function buildFallbackOutput(
   const deduped = deduplicateFindings(fbFindings, buildFindingIdentity);
   const sorted = sortFindings(deduped);
 
+  const skipReason = modelAttempted ? undefined : "model_not_configured";
   return {
     overall_summary: fb.overall_summary,
     files: fb.files,
@@ -174,8 +176,8 @@ function buildFallbackOutput(
         fallbackUsed: true,
         analysisMode: "heuristic_fallback",
         modelUsed: false,
-        modelAttempted: false,
-        modelSkipReason: "model_not_configured",
+        modelAttempted,
+        modelSkipReason: skipReason,
         limitations: ["Pattern-based review only, no semantic analysis"],
         traceMeta,
         overrides: { analysis_status: "partial" as const },
@@ -217,7 +219,7 @@ export async function handleReviewDiffByFile(
 
       if (!client.isAvailable()) {
         log.info("review-diff-by-file: ChatClient unavailable, using fallback");
-        return fallbackResult(provider, meta);
+        return fallbackResult(provider, meta, true);
       }
 
       // P2: Small diff → single model call (entire diff, not per-file)
@@ -285,7 +287,7 @@ export async function handleReviewDiffByFile(
       // If every chunk failed, fall back entirely to heuristic
       if (succeededChunks === 0 && failedChunks > 0) {
         log.warn("review-diff-by-file: all chunks failed, falling back to heuristic", { failedChunks });
-        return fallbackResult(provider, meta);
+        return fallbackResult(provider, meta, true);
       }
 
       log.info("review-diff-by-file: model path done", { succeededChunks, failedChunks, findings: allFindings.length });
@@ -330,15 +332,15 @@ export async function handleReviewDiffByFile(
     const outValidation = validateOutput("aux_review_diff_by_file", output);
     if (!outValidation.ok) {
       log.warn("review-diff-by-file: output validation failed, using fallback");
-      return fallbackResult(provider, meta);
+      return fallbackResult(provider, meta, true);
     }
 
     return { content: [{ type: "text", text: JSON.stringify(outValidation.data) }], isError: false };
   }
 
-  function fallbackResult(provider: string, meta: ChunkMeta): CallToolResult {
+  function fallbackResult(provider: string, meta: ChunkMeta, modelAttempted = false): CallToolResult {
     const fb = reviewDiffByFileFallback(originalDiff, max_chars_per_file, max_files);
-    const output = buildFallbackOutput(fb, provider, meta, traceMeta);
+    const output = buildFallbackOutput(fb, provider, meta, traceMeta, modelAttempted);
     return { content: [{ type: "text", text: JSON.stringify(output) }], isError: false };
   }
 }

@@ -218,7 +218,9 @@ export async function handleReviewDiff(
     : process.env.AUX_MODEL_PROVIDER ?? "remote";
 
   // ---- 4. Determine if model is available ----
+  let modelAttempted = false;
   if (isModelAvailable(config)) {
+    modelAttempted = true;
     try {
       return await modelReview(config as AppConfig, diff, focus, inputTruncated, provider, traceMeta);
     } catch (err: unknown) {
@@ -235,7 +237,7 @@ export async function handleReviewDiff(
   }
 
   // ---- 5. Heuristic fallback path ----
-  return heuristicReview(diff, maxChars, inputTruncated, provider, traceMeta);
+  return heuristicReview(diff, maxChars, inputTruncated, provider, traceMeta, modelAttempted);
 }
 
 // ---------------------------------------------------------------------------
@@ -341,14 +343,16 @@ function heuristicReview(
   inputTruncated: boolean,
   provider: string,
   traceMeta: ReturnType<typeof createTraceMeta>,
+  modelAttempted = false,
 ): CallToolResult {
   log.info("review-diff: using heuristic fallback");
 
   const fallbackResult = reviewDiffFallback(diff, maxChars);
+  const skipReason = modelAttempted ? undefined : "model_not_configured";
 
   const outputData = {
     ...fallbackResult,
-    analysis_status: fallbackStatus("model_not_configured", true),
+    analysis_status: fallbackStatus(skipReason ?? "model_unavailable", true),
     _meta: assembleBaseMeta({
       provider,
       modelName: "heuristic",
@@ -359,11 +363,11 @@ function heuristicReview(
       fallbackUsed: true,
       analysisMode: "heuristic_fallback",
       modelUsed: false,
-      modelAttempted: false,
-      modelSkipReason: "model_not_configured",
+      modelAttempted,
+      modelSkipReason: skipReason,
       limitations: ["Pattern-based review only, no semantic analysis"],
       traceMeta,
-      overrides: { analysis_status: fallbackStatus("model_not_configured", true) },
+      overrides: { analysis_status: fallbackStatus(skipReason ?? "model_unavailable", true) },
     }),
   };
 

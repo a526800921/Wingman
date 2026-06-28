@@ -85,7 +85,9 @@ export async function handleCompressText(
 
   const modelAvailable = isModelAvailable(config);
 
+  let modelAttempted = false;
   if (modelAvailable) {
+    modelAttempted = true;
     const result = await tryModelCompression(text, data, config as AppConfig, provider, traceMeta, inputTruncated);
     if (result) {
       return result;
@@ -93,7 +95,7 @@ export async function handleCompressText(
   }
 
   // ---- 4. Fallback path ----
-  return buildFallbackResult(text, data.label, maxChars, inputTruncated, provider, traceMeta);
+  return buildFallbackResult(text, data.label, maxChars, inputTruncated, provider, traceMeta, modelAttempted);
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +213,7 @@ function buildFallbackResult(
   inputTruncated: boolean,
   provider: string,
   traceMeta: ReturnType<typeof createTraceMeta>,
+  modelAttempted = false,
 ): CallToolResult {
   log.info("compress-text: using heuristic fallback compression", {
     label,
@@ -218,11 +221,12 @@ function buildFallbackResult(
   });
 
   const fallbackResult = compressTextFallback(text, label, maxChars);
+  const skipReason = modelAttempted ? undefined : "model_not_configured";
 
   // Assemble the full output: fallback payload + _meta
   const outputData = {
     ...fallbackResult,
-    analysis_status: fallbackStatus("model_not_configured", true),
+    analysis_status: fallbackStatus(skipReason ?? "model_unavailable", true),
     _meta: assembleBaseMeta({
       provider,
       modelName: "heuristic",
@@ -233,11 +237,11 @@ function buildFallbackResult(
       fallbackUsed: true,
       analysisMode: "heuristic_fallback",
       modelUsed: false,
-      modelAttempted: false,
-      modelSkipReason: "model_not_configured",
+      modelAttempted,
+      modelSkipReason: skipReason,
       limitations: ["Heuristic compression, may miss semantic relationships"],
       traceMeta,
-      overrides: { analysis_status: fallbackStatus("model_not_configured", true) },
+      overrides: { analysis_status: fallbackStatus(skipReason ?? "model_unavailable", true) },
     }),
   };
 
