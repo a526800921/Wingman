@@ -22,6 +22,7 @@ import {
 import { compressTextFallback } from "../fallback/compress-text.js";
 import { splitPrefixSuffix, joinPrefixSuffix } from "../model-runtime/truncation.js";
 import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
+import { modelPathStatus, fallbackStatus } from "../model-runtime/status.js";
 import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -165,7 +166,7 @@ async function tryModelCompression(
       return null;
     }
 
-    (parsed as Record<string, unknown>).analysis_status = "complete";
+    (parsed as Record<string, unknown>).analysis_status = modelPathStatus(true, false, false);
     (parsed as Record<string, unknown>).is_authoritative = false;
     (parsed as Record<string, unknown>)._meta = {
       provider,
@@ -175,7 +176,7 @@ async function tryModelCompression(
       completion_tokens: usage?.completion_tokens,
       input_truncated: text.length < data.text.length,
       fallback_used: false,
-      analysis_status: "complete" as const,
+      analysis_status: modelPathStatus(true, false, false),
       ...traceMeta,
       ...buildDiagnosticMeta({
         analysisMode: "model_analysis",
@@ -234,14 +235,14 @@ function buildFallbackResult(
   // Assemble the full output: fallback payload + _meta
   const outputData = {
     ...fallbackResult,
-    analysis_status: "partial" as const,
+    analysis_status: fallbackStatus("model_not_configured", true),
     _meta: {
       provider,
       model: "heuristic",
       tokens_used: 0,
       input_truncated: inputTruncated,
       fallback_used: true,
-      analysis_status: "partial" as const,
+      analysis_status: fallbackStatus("model_not_configured", true),
       ...traceMeta,
       ...buildDiagnosticMeta({
         analysisMode: "heuristic_fallback",

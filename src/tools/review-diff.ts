@@ -29,6 +29,7 @@ import {
 } from "../prompts.js";
 import { reviewDiffFallback } from "../fallback/review-diff.js";
 import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
+import { modelPathStatus, fallbackStatus } from "../model-runtime/status.js";
 import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -309,7 +310,7 @@ async function modelReview(
   // Attach _meta before schema validation (model prompt does not include _meta)
   const outputWithMeta = {
     ...(parsed as Record<string, unknown>),
-    analysis_status: inputTruncated ? "partial" : "complete",
+    analysis_status: modelPathStatus(true, false, inputTruncated),
     is_authoritative: false,
     heuristic_signals: heuristicSignals.length > 0 ? heuristicSignals : undefined,
     _meta: {
@@ -320,7 +321,7 @@ async function modelReview(
       completion_tokens: usage?.completion_tokens,
       input_truncated: inputTruncated,
       fallback_used: false,
-      analysis_status: inputTruncated ? "partial" : "complete",
+      analysis_status: modelPathStatus(true, false, inputTruncated),
       ...traceMeta,
       ...buildDiagnosticMeta({
         analysisMode: "model_analysis",
@@ -365,14 +366,14 @@ function heuristicReview(
 
   const outputData = {
     ...fallbackResult,
-    analysis_status: "partial" as const,
+    analysis_status: fallbackStatus("model_not_configured", true),
     _meta: {
       provider,
       model: "heuristic",
       tokens_used: 0,
       input_truncated: inputTruncated,
       fallback_used: true,
-      analysis_status: "partial" as const,
+      analysis_status: fallbackStatus("model_not_configured", true),
       ...traceMeta,
       ...buildDiagnosticMeta({
         analysisMode: "heuristic_fallback",

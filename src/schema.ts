@@ -183,7 +183,7 @@ export type HeuristicSignal = z.infer<typeof HeuristicSignalSchema>;
 
 export const SummarizeFileOutput = authoritativeMarker.merge(
   z.strictObject({
-    analysis_status: AnalysisStatusSchema.default("complete"),
+    analysis_status: AnalysisStatusSchema,
     summary: z.string(),
     important_symbols: z.array(ImportantSymbolSchema),
     evidence: z.array(EvidenceSchema),
@@ -201,7 +201,7 @@ export type SummarizeFileOutput = z.infer<typeof SummarizeFileOutput>;
 
 export const CompressTextOutput = authoritativeMarker.merge(
   z.strictObject({
-    analysis_status: AnalysisStatusSchema.default("complete"),
+    analysis_status: AnalysisStatusSchema,
     summary: z.string(),
     key_facts: z.array(z.string()),
     discarded_or_low_confidence: z.array(z.string()),
@@ -213,7 +213,7 @@ export type CompressTextOutput = z.infer<typeof CompressTextOutput>;
 
 export const ReviewDiffOutput = authoritativeMarker.merge(
   z.strictObject({
-    analysis_status: AnalysisStatusSchema.default("complete"),
+    analysis_status: AnalysisStatusSchema,
     change_summary: z.string(),
     possible_risks: z.array(PossibleRiskSchema),
     heuristic_signals: z.array(HeuristicSignalSchema).optional(),
@@ -288,37 +288,16 @@ export type ReviewDiffByFileInput = z.infer<typeof ReviewDiffByFileInput>;
 
 export const ReviewDiffByFileOutput = authoritativeMarker.merge(
   z.strictObject({
-    analysis_status: AnalysisStatusSchema.default("complete"),
+    analysis_status: AnalysisStatusSchema,
     overall_summary: z.string(),
     files: z.array(FileReviewSchema),
     top_risks: z.array(DiffFindingSchema),
     omitted_files: z.array(OmittedFileSchema),
     heuristic_signals: z.array(HeuristicSignalSchema).optional(),
-    _meta: z.strictObject({
-      provider: z.string().optional(),
-      model: z.string(),
-      tokens_used: z.number().int().nonnegative().optional(),
-      prompt_tokens: z.number().int().nonnegative().optional(),
-      completion_tokens: z.number().int().nonnegative().optional(),
-      input_truncated: z.boolean(),
-      fallback_used: z.boolean(),
+    _meta: ResultMetaSchema.extend({
       chunking: ChunkMetaSchema,
-      // P0: unified reliability semantics
-      analysis_status: AnalysisStatusSchema.optional(),
-      model_attempted: z.boolean().optional(),
-      model_skip_reason: z.string().optional(),
-      model_failure_reason: z.string().optional(),
-      // Step 9: unified diagnostic fields (TranslateBar report reliability)
-      model_used: z.boolean().optional(),
-      analysis_mode: z.enum(["model_analysis", "heuristic_fallback", "mixed", "unsupported"]).optional(),
-      confidence: ConfidenceSchema.optional(),
-      limitations: z.array(z.string()).optional(),
-      // Phase 2: number of files included in aggregated output
       files_analyzed: z.number().int().nonnegative().optional(),
       files_omitted: z.number().int().nonnegative().optional(),
-      // MCP Tool Feedback Loop: caller-facing identifiers
-      trace_id: z.string().optional(),
-      tool_name: z.string().optional(),
     }),
   }),
 );
@@ -371,25 +350,8 @@ export const CompressCommandOutputOutput = authoritativeMarker.merge(
     discarded_or_low_confidence: z.array(z.string()),
     uncertainties: z.array(z.string()).optional(),
     reported_totals: ReportedTotalsSchema.optional(),
-    _meta: z.strictObject({
-      provider: z.string().optional(),
-      model: z.string(),
-      tokens_used: z.number().int().nonnegative().optional(),
-      prompt_tokens: z.number().int().nonnegative().optional(),
-      completion_tokens: z.number().int().nonnegative().optional(),
-      input_truncated: z.boolean(),
-      fallback_used: z.boolean(),
+    _meta: ResultMetaSchema.extend({
       chunking: ChunkMetaSchema,
-      // Analysis status metadata
-      analysis_status: AnalysisStatusSchema.optional(),
-      model_attempted: z.boolean().optional(),
-      model_skip_reason: z.string().optional(),
-      model_failure_reason: z.string().optional(),
-      // Step 9: unified diagnostic fields (TranslateBar report reliability)
-      model_used: z.boolean().optional(),
-      analysis_mode: z.enum(["model_analysis", "heuristic_fallback", "mixed", "unsupported"]).optional(),
-      confidence: ConfidenceSchema.optional(),
-      limitations: z.array(z.string()).optional(),
       // P0: response contract recovery
       model_response_status: z.string().optional(),
       model_call_attempts: z.number().int().nonnegative().optional(),
@@ -413,9 +375,6 @@ export const CompressCommandOutputOutput = authoritativeMarker.merge(
       detector_hint: z.string().optional(),
       model_detected_kind: z.string().optional(),
       kind_mismatch: z.boolean().optional(),
-      // MCP Tool Feedback Loop: caller-facing identifiers
-      trace_id: z.string().optional(),
-      tool_name: z.string().optional(),
     }),
   }),
 );

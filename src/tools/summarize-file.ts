@@ -28,6 +28,7 @@ import {
 } from "../fallback/summarize-file.js";
 import { splitPrefixSuffix, joinPrefixSuffix } from "../model-runtime/truncation.js";
 import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
+import { modelPathStatus, fallbackStatus } from "../model-runtime/status.js";
 import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -239,7 +240,7 @@ async function tryModelSummarization(
     // Step 5f: attach _meta + force is_authoritative (model prompt does not include _meta)
     const outputWithMeta = {
       ...(parsed as Record<string, unknown>),
-      analysis_status: inputTruncated ? "partial" : "complete",
+      analysis_status: modelPathStatus(true, false, inputTruncated),
       is_authoritative: false,
       _meta: {
         provider,
@@ -249,7 +250,7 @@ async function tryModelSummarization(
         completion_tokens: usage?.completion_tokens,
         input_truncated: inputTruncated,
         fallback_used: false,
-        analysis_status: inputTruncated ? "partial" as const : "complete" as const,
+        analysis_status: modelPathStatus(true, false, inputTruncated),
         ...traceMeta,
         ...buildDiagnosticMeta({
           analysisMode: "model_analysis",
@@ -339,14 +340,14 @@ function buildFallbackResult(
       ],
       must_verify_in_source: true,
       is_authoritative: false,
-      analysis_status: "partial" as const,
+      analysis_status: fallbackStatus("model_not_configured", false),
       _meta: {
         provider,
         model: "heuristic",
         tokens_used: 0,
         input_truncated: inputTruncated,
         fallback_used: true,
-        analysis_status: "partial" as const,
+        analysis_status: fallbackStatus("model_not_configured", false),
         ...traceMeta,
         ...buildDiagnosticMeta({
           analysisMode: "heuristic_fallback",
@@ -361,7 +362,7 @@ function buildFallbackResult(
 
   return {
     summary: fallbackData.summary,
-    analysis_status: "partial" as const,
+    analysis_status: fallbackStatus("model_not_configured", true),
     file_kind: fallbackData.file_kind,
     important_symbols: fallbackData.important_symbols.map((s) => ({
       name: s.name,
@@ -383,7 +384,7 @@ function buildFallbackResult(
       tokens_used: 0,
       input_truncated: inputTruncated,
       fallback_used: true,
-      analysis_status: "partial" as const,
+      analysis_status: fallbackStatus("model_not_configured", true),
       ...traceMeta,
       ...buildDiagnosticMeta({
         analysisMode: "heuristic_fallback",

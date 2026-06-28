@@ -68,11 +68,21 @@ incomplete → 未形成可验证的完整分析
 
 ## 下一步
 
-1. 移除 `AnalysisStatusSchema.default("complete")`，要求 handler 显式赋值；
-2. 为所有工具补充旧输出兼容 fixture；
-3. 统一 `ResultMetaSchema` 与各工具自定义 `_meta`；
-4. 同步 `src/index.ts` MCP JSON schema；
+1. ~~移除 `AnalysisStatusSchema.default("complete")`，要求 handler 显式赋值~~ → **已完成 (2026-06-28)**
+2. ~~为所有工具补充旧输出兼容 fixture~~ → **已完成 (2026-06-28)**，见 `test/schema-analysis-status.test.ts`
+3. ~~统一 `ResultMetaSchema` 与各工具自定义 `_meta`~~ → **已完成 (2026-06-28)**，5 个工具 `_meta` 均基于 `ResultMetaSchema`（3 个直接复用，2 个 `.extend()`）
+4. ~~同步 `src/index.ts` MCP JSON schema~~ → **已完成 (2026-06-28)**，5 个 JSON schema 已与 Zod schema 字段一致
 5. 一个迁移周期后评估是否删除重复的 `_meta.analysis_status`。
+
+## 2026-06-28: 统一 analysis_status 与 ResultMetaSchema
+
+- `analysis_status` 不再有 `.default("complete")` — handler 必须显式设置，否则 Zod 验证拒绝
+- 所有 5 个工具的 `_meta` 均基于共享 `ResultMetaSchema`：
+  - `SummarizeFileOutput`、`CompressTextOutput`、`ReviewDiffOutput` 直接引用 `ResultMetaSchema`
+  - `ReviewDiffByFileOutput`、`CompressCommandOutputOutput` 使用 `ResultMetaSchema.extend({...})`
+- `modelPathStatus()` 和 `fallbackStatus()`（`src/model-runtime/status.ts`）是所有 handler 计算 `analysis_status` 的规范方式
+- 读取优先级：顶层 `analysis_status` 为主；`_meta.analysis_status` 镜像提供，但不保证长期存在
+- `summarize_file` fallback 失败路径正确性修复：`"partial"` → `"incomplete"`（旧行为依赖 schema default）
 
 ## 调用方示例
 
@@ -102,8 +112,8 @@ for (const signal of result.heuristic_signals ?? []) {
 新增以下能力，用于让调用方报告 Wingman 工具输出的质量问题：
 
 - 所有 5 个工具的 `_meta` 新增 `trace_id`（8 位十六进制字符串）和 `tool_name`（工具标识字符串）。trace_id 在单次工具调用生命周期内保持不变，用于关联反馈与原始调用。
-- 新增 `aux_report_tool_feedback` 工具，调用方可主动报告质量缺陷。接受 `tool_name`、`trace_id`、`issue_category`、`severity`、`summary`、`confidence` 等参数。反馈写入 `.aux-feedback.jsonl`（JSON Lines 格式）。
-- 新增环境变量 `AUX_FEEDBACK_LOG_FILE`，控制反馈日志路径（默认 `.aux-feedback.jsonl`，设为 `off` 禁用）。
+- 新增 `aux_report_tool_feedback` 工具，调用方可主动报告质量缺陷。接受 `tool_name`、`trace_id`、`issue_category`、`severity`、`summary`、`confidence` 等参数。反馈默认写入 `~/.wingman/feedback.jsonl`（JSON Lines 格式），所有消费项目共享同一个反馈入口。
+- 新增环境变量 `AUX_FEEDBACK_LOG_FILE`，控制反馈日志路径（默认 `~/.wingman/feedback.jsonl`，设为 `off` 禁用）。
 - 新增聚合脚本 `scripts/summarize-feedback.ts`，读取反馈 JSONL 生成 Markdown 汇总报告（使用方式：`npx tsx scripts/summarize-feedback.ts`）。
 
 消费者注意：
