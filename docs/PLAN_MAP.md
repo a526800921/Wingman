@@ -88,12 +88,11 @@ ADR-0001 模型优先
 | [wingman-mcp-translatebar-report-reliability](plans/wingman-mcp-translatebar-report-reliability.md) | 已完成 | 施工计划 | command-output-response-contract-recovery |
 | [mcp-tool-feedback-loop](plans/mcp-tool-feedback-loop.md) | 已完成 | 施工计划 | wingman-mcp-translatebar-report-reliability |
 | [summarize-file-model-first](plans/summarize-file-model-first.md) | 待实施 | 施工计划 | - |
-| [summarize-file-fallback-slim](plans/summarize-file-fallback-slim.md) | 待实施 | 重构 | summarize-file-model-first 的 fallback 收敛步骤 |
-| [compress-text-model-first](plans/compress-text-model-first.md) | 待实施 | 施工计划 | - |
-| [compress-text-fixes](plans/compress-text-fixes.md) | 待实施 | 修复 | compress-text-model-first 的低代价债务清理 |
-| [compress-command-output-fixes](plans/compress-command-output-fixes.md) | 待实施 | 修复 | 最成熟工具的 _meta 统一 + modelFirstPath 拆分 |
-| [review-diff-fixes](plans/review-diff-fixes.md) | 待实施 | 修复 | _meta 统一 + heuristic_signals 条件触发 |
-| [review-diff-by-file-fixes](plans/review-diff-by-file-fixes.md) | 待实施 | 修复 | _meta 统一 + 死 import 清理 |
+| [summarize-file-fallback-slim](plans/summarize-file-fallback-slim.md) | 已完成 | 重构 | summarize-file-model-first 的 fallback 收敛步骤 |
+| [compress-text-fixes](plans/compress-text-fixes.md) | 已完成 | 修复 | compress-text-model-first 的低代价债务清理 |
+| [compress-command-output-fixes](plans/compress-command-output-fixes.md) | 已完成 | 修复 | 最成熟工具的 _meta 统一 + sanitizeEvidence |
+| [review-diff-fixes](plans/review-diff-fixes.md) | 已完成 | 修复 | _meta 统一 + heuristic_signals 条件触发 |
+| [review-diff-by-file-fixes](plans/review-diff-by-file-fixes.md) | 已完成 | 修复 | _meta 统一 + 死 import 清理 |
 | [review-tools-consolidation](plans/review-tools-consolidation.md) | 待实施 | 施工计划 | - |
 | [npm-publish](plans/npm-publish.md) | 已完成 | 施工计划 | - |
 | [unify-analysis-status](plans/unify-analysis-status.md) | 已完成 | 施工计划 | - |
@@ -117,11 +116,11 @@ ADR-0001 模型优先
 | `docs/phase2-tools-validation-plan.md` | 验证战略 | 设计中 | P0 已拆到 `docs/phase2-validation-p0-plan.md` | 本文档 |
 | `docs/phase2-validation-p0-plan.md` | 施工计划 | 待实施 | 前置验证 P0 | 本计划 |
 | `docs/plans/summarize-file-model-first.md` | 施工计划 | 待实施 | 依赖 shared runtime、migration note；纳入 TranslateBar Swift 报告证据 | 本计划 |
-| `docs/plans/summarize-file-fallback-slim.md` | 重构 | 待实施 | 依赖 summarize-file-model-first；更激进 fallback 收敛（`analysis_status: incomplete`） | 本计划 |
-| `docs/plans/compress-text-fixes.md` | 修复 | 待实施 | 依赖 compress-text-model-first；_meta 统一 + heuristic_signals + 智能截断 | 本计划 |
-| `docs/plans/compress-command-output-fixes.md` | 修复 | 待实施 | _meta 统一 + modelFirstPath 拆分 + sanitizeEvidence 补全 | 本计划 |
-| `docs/plans/review-diff-fixes.md` | 修复 | 待实施 | _meta 统一 + heuristic_signals 条件触发 | 本计划 |
-| `docs/plans/review-diff-by-file-fixes.md` | 修复 | 待实施 | _meta 统一 + 死 import 清理 | 本计划 |
+| `docs/plans/summarize-file-fallback-slim.md` | 重构 | **已完成** (2026-06-28) | 依赖 summarize-file-model-first；fallback 1057→150 + evidence verify | commit 8614de4 |
+| `docs/plans/compress-text-fixes.md` | 修复 | **已完成** (2026-06-28) | 依赖 compress-text-model-first；_meta 统一 + heuristic_signals | commit 3b1f998 |
+| `docs/plans/compress-command-output-fixes.md` | 修复 | **已完成** (2026-06-28) | _meta 工厂函数 + sanitizeEvidence + trace 统一 | commit 8451202 |
+| `docs/plans/review-diff-fixes.md` | 修复 | **已完成** (2026-06-28) | _meta 统一 + heuristic_signals 条件触发 | commit 07af00a |
+| `docs/plans/review-diff-by-file-fixes.md` | 修复 | **已完成** (2026-06-28) | _meta 统一 + 死 import 清理 | commit b43bbc6 |
 | `docs/plans/compress-text-model-first.md` | 施工计划 | 待实施 | 依赖 shared runtime、migration note | 本计划 |
 | `docs/plans/review-tools-consolidation.md` | 施工计划 | 待实施 | 优先于 summarize/compress；依赖 canonical diff path | 本计划 |
 | `docs/migrations/model-first-output-schema.md` | Migration note | 设计中 | 约束所有公开输出 schema 变更 | 本文档 |
