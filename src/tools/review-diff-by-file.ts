@@ -2,7 +2,8 @@ import { McpError, ErrorCode, type CallToolResult } from "@modelcontextprotocol/
 import type { AppConfig } from "../config.js";
 import { ChatClient } from "../chat-client.js";
 import { hasApiKey, isModelAvailable, type ConfigLike } from "../shared/config-guard.js";
-import { createTraceContext, withDuration } from "../shared/handler-boilerplate.js";
+import { createTraceContext, withDuration, assembleBaseMeta } from "../shared/handler-boilerplate.js";
+import { createTraceMeta, traceLogger } from "../logger.js";
 import {
   validateInput,
   validateOutput,
@@ -18,11 +19,9 @@ import {
   extractJsonFromResponse,
 } from "../prompts.js";
 import { reviewDiffByFileFallback } from "../fallback/review-diff-by-file.js";
-import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
 import { chunkDiff } from "../chunking/diff.js";
 import type { ChunkMeta } from "../chunking/types.js";
 import { sortFindings, deduplicateFindings, buildFindingIdentity } from "../chunking/merge.js";
-import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
 
 /**
  * P2: Small diff → single model call. Sends entire diff and expects per-file findings.
@@ -165,23 +164,23 @@ function buildFallbackOutput(
     analysis_status: "partial" as const,
     is_authoritative: false,
     _meta: {
-      provider,
-      model: "heuristic",
-      tokens_used: 0,
-      input_truncated: meta.input_truncated,
-      fallback_used: true,
-      feedback_recommended: true as const,
-      feedback_reason: "fallback_used" as const,
-      analysis_status: "partial" as const,
-      chunking: meta,
-      ...traceMeta,
-      ...buildDiagnosticMeta({
+      ...assembleBaseMeta({
+        provider,
+        modelName: "heuristic",
+        totalTokens: 0,
+        promptTokens: undefined,
+        completionTokens: undefined,
+        inputTruncated: meta.input_truncated,
+        fallbackUsed: true,
         analysisMode: "heuristic_fallback",
         modelUsed: false,
         modelAttempted: false,
         modelSkipReason: "model_not_configured",
         limitations: ["Pattern-based review only, no semantic analysis"],
+        traceMeta,
+        overrides: { analysis_status: "partial" as const },
       }),
+      chunking: meta,
     },
   };
 }
@@ -309,7 +308,23 @@ export async function handleReviewDiffByFile(
       omitted_files: meta.omitted.map(o => ({ file: o.source ?? o.label, reason: o.reason })),
       is_authoritative: false,
       analysis_status: meta.input_truncated ? "partial" : "complete" as const,
-      _meta: { provider, model: (config as AppConfig).modelName, tokens_used: totalTokens, prompt_tokens: totalPromptTokens || undefined, completion_tokens: totalCompletionTokens || undefined, input_truncated: meta.input_truncated, fallback_used: false, feedback_recommended: meta.input_truncated ? true as const : undefined, feedback_reason: meta.input_truncated ? "partial_analysis" as const : undefined, chunking: meta, analysis_status: meta.input_truncated ? "partial" : "complete" as const, ...traceMeta, ...buildDiagnosticMeta({ analysisMode: "model_analysis", modelUsed: true, modelAttempted: true }) },
+      _meta: {
+        ...assembleBaseMeta({
+          provider,
+          modelName: (config as AppConfig).modelName,
+          totalTokens,
+          promptTokens: totalPromptTokens || undefined,
+          completionTokens: totalCompletionTokens || undefined,
+          inputTruncated: meta.input_truncated,
+          fallbackUsed: false,
+          analysisMode: "model_analysis",
+          modelUsed: true,
+          modelAttempted: true,
+          traceMeta,
+          overrides: { analysis_status: meta.input_truncated ? "partial" as const : "complete" as const },
+        }),
+        chunking: meta,
+      },
     };
 
     const outValidation = validateOutput("aux_review_diff_by_file", output);
