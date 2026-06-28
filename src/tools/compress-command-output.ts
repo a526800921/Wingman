@@ -1,6 +1,5 @@
 import { McpError, ErrorCode, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { AppConfig } from "../config.js";
-import { hasModelConfig, loadConfig, loadConfigFallback } from "../config.js";
 import { ChatClient } from "../chat-client.js";
 import {
   validateInput,
@@ -10,6 +9,8 @@ import {
   type CompressCommandOutputInput,
   type CompressCommandOutputOutput,
 } from "../schema.js";
+import { hasApiKey, isModelAvailable, type ConfigLike } from "../shared/config-guard.js";
+import { sanitizeEvidence } from "../shared/sanitize.js";
 import {
   buildCompressCommandOutputSystemPrompt,
   buildCompressCommandOutputBatchUserMessage,
@@ -30,19 +31,6 @@ import { chunkCommandOutput, detectOutputKind } from "../chunking/command-output
 import { deduplicateCommandFindings } from "../chunking/merge.js";
 import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
 import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
-
-function sanitizeEvidence(text: string): string {
-  return text
-    .replace(/Bearer\s+[\w\-.]{20,}/gi, "Bearer ***REDACTED***")
-    .replace(/(api[_-]?key|apikey|secret|token|password)\s*[:=]\s*['"]?[\w\-.]{8,}['"]?/gi, "$1=***REDACTED***")
-    .replace(/(https?:\/\/)[^:@]+:[^@]+@/g, "$1***:***@");
-}
-
-type ConfigLike = ReturnType<typeof loadConfig> | ReturnType<typeof loadConfigFallback>;
-
-function hasApiKey(config: ConfigLike): config is AppConfig {
-  return "modelApiKey" in config && typeof (config as AppConfig).modelApiKey === "string" && (config as AppConfig).modelApiKey.length > 0;
-}
 
 // ── Batching config ───────────────────────────────────────
 
@@ -158,7 +146,7 @@ export async function handleCompressCommandOutput(
 
   async function handleImpl(): Promise<CallToolResult> {
     const provider = (config as AppConfig).modelProvider ?? process.env.AUX_MODEL_PROVIDER ?? "remote";
-    const modelAvailable = hasModelConfig() && hasApiKey(config);
+    const modelAvailable = isModelAvailable(config);
     const detectorHint = detectOutputKind(output);
     const cappedOutput = output.length > max_chars ? output.slice(0, max_chars) : output;
     const inputTruncated = output.length > max_chars;

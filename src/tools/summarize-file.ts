@@ -9,7 +9,6 @@
 import { readFileSync } from "node:fs";
 import { McpError, ErrorCode, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
-import { loadConfig, loadConfigFallback, hasModelConfig } from "../config.js";
 import type { AppConfig } from "../config.js";
 import { ChatClient, ChatClientError } from "../chat-client.js";
 import { resolveSafePath, DEFAULT_MAX_READ_CHARS } from "../workspace.js";
@@ -29,40 +28,20 @@ import {
 import { splitPrefixSuffix, joinPrefixSuffix } from "../model-runtime/truncation.js";
 import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
 import { modelPathStatus, fallbackStatus } from "../model-runtime/status.js";
-import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
+import { createTraceMeta } from "../logger.js";
+import { hasApiKey, isModelAvailable, type ConfigLike } from "../shared/config-guard.js";
+import { createTraceContext, withDuration } from "../shared/handler-boilerplate.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Determine whether `config` is a full AppConfig with model-related fields
- * (duck-typing — `loadConfigFallback` only returns `{ workspaceRoot }`).
- */
-function isFullConfig(
-  config: ReturnType<typeof loadConfig> | ReturnType<typeof loadConfigFallback>,
-): config is AppConfig {
-  return "modelApiKey" in config && typeof (config as AppConfig).modelApiKey === "string";
-}
-
-/**
- * Build an error CallToolResult with a single text content block.
- */
 function errorResult(message: string): CallToolResult {
-  return {
-    content: [{ type: "text", text: message }],
-    isError: true,
-  };
+  return { content: [{ type: "text", text: message }], isError: true };
 }
 
-/**
- * Build a successful CallToolResult with the given JSON-serializable payload.
- */
 function successResult(payload: SummarizeFileOutput): CallToolResult {
-  return {
-    content: [{ type: "text", text: JSON.stringify(payload) }],
-    isError: false,
-  };
+  return { content: [{ type: "text", text: JSON.stringify(payload) }], isError: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -83,12 +62,10 @@ function successResult(payload: SummarizeFileOutput): CallToolResult {
  */
 export async function handleSummarizeFile(
   input: unknown,
-  config: ReturnType<typeof loadConfig> | ReturnType<typeof loadConfigFallback>,
+  config: ConfigLike,
 ): Promise<CallToolResult> {
   const t0 = Date.now();
-  const tid = createTraceId();
-  const traceMeta = createTraceMeta(tid, "aux_summarize_file");
-  const log = traceLogger(tid);
+  const { tid, traceMeta, log } = createTraceContext("aux_summarize_file");
 
   // ---- Step 1: validate input ----------------------------------------------
   const inputValidation = validateInput("aux_summarize_file", input);
@@ -106,7 +83,7 @@ export async function handleSummarizeFile(
   try {
     return await handleImpl();
   } finally {
-    logDuration(tid, "summarize_file done", t0);
+    await withDuration(tid, "summarize_file done", t0);
   }
 
   async function handleImpl(): Promise<CallToolResult> {
@@ -160,14 +137,11 @@ export async function handleSummarizeFile(
 
   // ---- Step 4-5: model-based or fallback summarization ---------------------
 
-  const provider = isFullConfig(config)
-    ? (config as AppConfig).modelProvider
+  const provider = hasApiKey(config)
+    ? config.modelProvider
     : process.env.AUX_MODEL_PROVIDER ?? "remote";
 
-  const modelAvailable =
-    isFullConfig(config) &&
-    hasModelConfig() &&
-    new ChatClient(config).isAvailable();
+  const modelAvailable = isModelAvailable(config);
 
   let result: SummarizeFileOutput;
 

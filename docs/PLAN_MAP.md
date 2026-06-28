@@ -66,11 +66,11 @@ ADR-0001 模型优先
 ## 推荐实施顺序
 
 ```text
-1. 先写 Round 4 失败 fixture 和模型响应契约测试
-2. 修复 command-output 响应分层校验、失败记账和非零退出恢复
-3. 固定 TranslateBar 真实报告红灯 fixtures，并修复全绿误标 failure、Swift fallback 误导参数、当前日期幻觉
-4. 统一 analysis status 与 migration 语义
-5. 完善共享 model-runtime 和 mock model 测试
+1. 先写 Round 4 失败 fixture 和模型响应契约测试 ✅
+2. 修复 command-output 响应分层校验、失败记账和非零退出恢复 ✅
+3. 固定 TranslateBar 真实报告红灯 fixtures ✅
+4. 统一 analysis status 与 migration 语义 ✅
+5. 架构精简：删幽灵模块、Schema 去重、Handler 样板消除 ✅
 6. 修复 review 工具路径、证据和 fallback 语义
 7. 迁移 summarize_file 大输入与 fallback
 8. 迁移 compress_text 大输入与 fallback
@@ -93,6 +93,7 @@ ADR-0001 模型优先
 | [npm-publish](plans/npm-publish.md) | 已完成 | 施工计划 | - |
 | [unify-analysis-status](plans/unify-analysis-status.md) | 已完成 | 施工计划 | - |
 | [feedback-guidance-reproducibility](plans/feedback-guidance-reproducibility.md) | 已完成 | 施工计划 | mcp-tool-feedback-loop |
+| [architecture-cleanup](plans/architecture-cleanup.md) | 已完成 | 施工计划 | - |
 
 ## 当前文档状态
 
@@ -116,7 +117,8 @@ ADR-0001 模型优先
 | `docs/migrations/model-first-output-schema.md` | Migration note | 设计中 | 约束所有公开输出 schema 变更 | 本文档 |
 | `docs/plans/npm-publish.md` | 施工计划 | **已完成** (2026-06-28) | npm 发布配置与发布验证 | 本计划“完成记录” |
 | `docs/plans/unify-analysis-status.md` | 施工计划 | **已完成** (2026-06-28) | 统一 analysis_status 语义与 schema migration | 本计划“完成记录”；`docs/migrations/model-first-output-schema.md` |
-| `docs/plans/feedback-guidance-reproducibility.md` | 施工计划 | **已完成** (2026-06-28) | 反馈引导与可复现性增强 | 本计划“完成记录” |
+| `docs/plans/feedback-guidance-reproducibility.md` | 施工计划 | **已完成** (2026-06-28) | 反馈引导与可复现性增强 | 本计划”完成记录” |
+| `docs/plans/architecture-cleanup.md` | 施工计划 | **已完成** (2026-06-28) | 幽灵模块清理、Schema 去重、Handler 样板消除；无外部依赖 | 本计划"完成证据" |
 
 状态只表示当前源码观察结果，不代表已发布版本承诺。实施完成后应更新本表并附验证命令。
 

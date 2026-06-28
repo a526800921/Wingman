@@ -14,7 +14,6 @@
 
 import { McpError, ErrorCode, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { AppConfig } from "../config.js";
-import { hasModelConfig, loadConfig, loadConfigFallback } from "../config.js";
 import { ChatClient } from "../chat-client.js";
 import {
   validateInput,
@@ -30,7 +29,9 @@ import {
 import { reviewDiffFallback } from "../fallback/review-diff.js";
 import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
 import { modelPathStatus, fallbackStatus } from "../model-runtime/status.js";
-import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
+import { hasApiKey, isModelAvailable, type ConfigLike } from "../shared/config-guard.js";
+import { createTraceContext, withDuration } from "../shared/handler-boilerplate.js";
+import { createTraceMeta } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Smart diff truncation
@@ -165,26 +166,6 @@ function truncateBodyAtHunk(body: string, maxLen: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Config discrimination
-// ---------------------------------------------------------------------------
-
-/** The config parameter may be full AppConfig or fallback config. */
-type ConfigLike = ReturnType<typeof loadConfig> | ReturnType<typeof loadConfigFallback>;
-
-/**
- * Check whether config has a usable modelApiKey (i.e. it is a full AppConfig
- * with a non-empty key).  Used together with hasModelConfig() to determine
- * whether the model path is available.
- */
-function hasApiKey(config: ConfigLike): config is AppConfig {
-  return (
-    "modelApiKey" in config &&
-    typeof (config as AppConfig).modelApiKey === "string" &&
-    (config as AppConfig).modelApiKey.length > 0
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
 
@@ -193,9 +174,7 @@ export async function handleReviewDiff(
   config: ConfigLike,
 ): Promise<CallToolResult> {
   const t0 = Date.now();
-  const tid = createTraceId();
-  const traceMeta = createTraceMeta(tid, "aux_review_diff");
-  const log = traceLogger(tid);
+  const { tid, traceMeta, log } = createTraceContext("aux_review_diff");
 
   // ---- 1. Validate input ----
   const validation = validateInput("aux_review_diff", input);
@@ -216,7 +195,7 @@ export async function handleReviewDiff(
   try {
     return await handleImpl();
   } finally {
-    logDuration(tid, "review_diff done", t0);
+    await withDuration(tid, "review_diff done", t0);
   }
 
   async function handleImpl(): Promise<CallToolResult> {
@@ -235,16 +214,14 @@ export async function handleReviewDiff(
   }
 
   // ---- 3. Determine provider for _meta ----
-  const provider = (config as AppConfig).modelProvider ??
-    process.env.AUX_MODEL_PROVIDER ??
-    "remote";
+  const provider = hasApiKey(config)
+    ? config.modelProvider
+    : process.env.AUX_MODEL_PROVIDER ?? "remote";
 
   // ---- 4. Determine if model is available ----
-  const modelAvailable = hasModelConfig() && hasApiKey(config);
-
-  if (modelAvailable) {
+  if (isModelAvailable(config)) {
     try {
-      return await modelReview(config, diff, focus, inputTruncated, provider, traceMeta);
+      return await modelReview(config as AppConfig, diff, focus, inputTruncated, provider, traceMeta);
     } catch (err: unknown) {
       log.warn(
         "review-diff: model path failed, falling back to heuristic",

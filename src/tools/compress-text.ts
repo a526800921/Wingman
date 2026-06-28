@@ -11,9 +11,12 @@
 
 import { McpError, ErrorCode, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { AppConfig } from "../config.js";
-import { hasModelConfig, loadConfig, loadConfigFallback } from "../config.js";
 import { ChatClient } from "../chat-client.js";
 import { validateInput, validateOutput } from "../schema.js";
+import { hasApiKey, isModelAvailable, type ConfigLike } from "../shared/config-guard.js";
+import { createTraceContext, withDuration } from "../shared/handler-boilerplate.js";
+import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
+import { createTraceMeta } from "../logger.js";
 import {
   buildCompressTextSystemPrompt,
   buildCompressTextUserMessage,
@@ -21,9 +24,7 @@ import {
 } from "../prompts.js";
 import { compressTextFallback } from "../fallback/compress-text.js";
 import { splitPrefixSuffix, joinPrefixSuffix } from "../model-runtime/truncation.js";
-import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
 import { modelPathStatus, fallbackStatus } from "../model-runtime/status.js";
-import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Input shape (after validation)
@@ -42,12 +43,10 @@ interface CompressTextValidatedInput {
 
 export async function handleCompressText(
   input: unknown,
-  config: ReturnType<typeof loadConfig> | ReturnType<typeof loadConfigFallback>,
+  config: ConfigLike,
 ): Promise<CallToolResult> {
   const t0 = Date.now();
-  const tid = createTraceId();
-  const traceMeta = createTraceMeta(tid, "aux_compress_text");
-  const log = traceLogger(tid);
+  const { tid, traceMeta, log } = createTraceContext("aux_compress_text");
 
   // ---- 1. Validate input ----
   const inputResult = validateInput("aux_compress_text", input);
@@ -67,7 +66,7 @@ export async function handleCompressText(
   try {
     return await handleImpl();
   } finally {
-    logDuration(tid, "compress_text done", t0);
+    await withDuration(tid, "compress_text done", t0);
   }
 
   async function handleImpl(): Promise<CallToolResult> {
@@ -81,16 +80,11 @@ export async function handleCompressText(
   const text = inputTruncated ? joinPrefixSuffix(prefix, suffix, omittedChars) : data.text;
 
   // ---- 3. Determine model availability ----
-  // A full AppConfig has `modelApiKey`; the fallback config (Pick<AppConfig,
-  // "workspaceRoot">) does not.
-  const isFullConfig =
-    "modelApiKey" in config && (config as AppConfig).modelApiKey.length > 0;
-
-  const provider = isFullConfig
-    ? (config as AppConfig).modelProvider
+  const provider = hasApiKey(config)
+    ? config.modelProvider
     : process.env.AUX_MODEL_PROVIDER ?? "remote";
 
-  const modelAvailable = hasModelConfig() && isFullConfig;
+  const modelAvailable = isModelAvailable(config);
 
   if (modelAvailable) {
     const result = await tryModelCompression(text, data, config as AppConfig, provider, traceMeta);
@@ -112,14 +106,9 @@ async function tryModelCompression(
   data: CompressTextValidatedInput,
   appConfig: AppConfig,
   provider: string,
-  traceMeta: ReturnType<typeof createTraceMeta>,
+  traceMeta: ReturnType<typeof createTraceContext>["traceMeta"],
 ): Promise<CallToolResult | null> {
   const client = new ChatClient(appConfig);
-
-  if (!client.isAvailable()) {
-    log.info("compress-text: ChatClient not available, using fallback");
-    return null;
-  }
 
   log.info("compress-text: attempting model-based compression", {
     model: appConfig.modelName,

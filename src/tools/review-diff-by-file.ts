@@ -1,7 +1,8 @@
 import { McpError, ErrorCode, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { AppConfig } from "../config.js";
-import { hasModelConfig, loadConfig, loadConfigFallback } from "../config.js";
 import { ChatClient } from "../chat-client.js";
+import { hasApiKey, isModelAvailable, type ConfigLike } from "../shared/config-guard.js";
+import { createTraceContext, withDuration } from "../shared/handler-boilerplate.js";
 import {
   validateInput,
   validateOutput,
@@ -22,12 +23,6 @@ import { chunkDiff } from "../chunking/diff.js";
 import type { ChunkMeta } from "../chunking/types.js";
 import { sortFindings, deduplicateFindings, buildFindingIdentity } from "../chunking/merge.js";
 import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
-
-type ConfigLike = ReturnType<typeof loadConfig> | ReturnType<typeof loadConfigFallback>;
-
-function hasApiKey(config: ConfigLike): config is AppConfig {
-  return "modelApiKey" in config && typeof (config as AppConfig).modelApiKey === "string" && (config as AppConfig).modelApiKey.length > 0;
-}
 
 /**
  * P2: Small diff → single model call. Sends entire diff and expects per-file findings.
@@ -196,9 +191,7 @@ export async function handleReviewDiffByFile(
   config: ConfigLike,
 ): Promise<CallToolResult> {
   const t0 = Date.now();
-  const tid = createTraceId();
-  const traceMeta = createTraceMeta(tid, "aux_review_diff_by_file");
-  const log = traceLogger(tid);
+  const { tid, traceMeta, log } = createTraceContext("aux_review_diff_by_file");
 
   const validation = validateInput("aux_review_diff_by_file", input);
   if (!validation.ok) throw new McpError(ErrorCode.InvalidParams, validation.error);
@@ -209,12 +202,12 @@ export async function handleReviewDiffByFile(
   log.info("review_diff_by_file start", { diffLen: originalDiff.length, max_chars_per_file, max_files });
 
   try { return await handleImpl(); }
-  finally { logDuration(tid, "review_diff_by_file done", t0); }
+  finally { await withDuration(tid, "review_diff_by_file done", t0); }
 
   async function handleImpl(): Promise<CallToolResult> {
     const { chunks, meta } = chunkDiff(originalDiff, { max_chars_per_file, max_files });
     const provider = (config as AppConfig).modelProvider ?? process.env.AUX_MODEL_PROVIDER ?? "remote";
-    const modelAvailable = hasModelConfig() && hasApiKey(config);
+    const modelAvailable = isModelAvailable(config);
     let allFindings: DiffFinding[] = [];
     let totalTokens = 0;
     let totalPromptTokens = 0;

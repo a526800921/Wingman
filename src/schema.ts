@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 
 // ---------------------------------------------------------------------------
 // 共享类型
@@ -583,6 +584,32 @@ const outputSchemas: Record<ToolName, z.ZodTypeAny> = {
   aux_review_diff_by_file: ReviewDiffByFileOutput,
   aux_compress_command_output: CompressCommandOutputOutput,
   aux_report_tool_feedback: ToolFeedbackOutputSchema,
+};
+
+// ---------------------------------------------------------------------------
+// JSON Schema 生成（供 MCP tools/list 的 outputSchema 使用）
+// 从 Zod schema 自动生成，消除与 index.ts 的手工 JSON Schema 重复
+// ---------------------------------------------------------------------------
+
+/**
+ * 生成 JSON Schema 时移除 Zod 内部标记字段（$schema 由 MCP SDK 自行处理）。
+ * zod-to-json-schema 输出的 target 为 draft-07。
+ */
+function generateJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
+  const jsonSchema = zodToJsonSchema(schema) as Record<string, unknown>;
+  // 移除 $schema 字段 — MCP SDK 不要求此字段
+  delete jsonSchema.$schema;
+  return jsonSchema;
+}
+
+/** 所有工具 output 的 JSON Schema 映射表，由 Zod schema 自动生成。 */
+export const toolOutputJsonSchemas: Record<ToolName, Record<string, unknown>> = {
+  aux_summarize_file: generateJsonSchema(SummarizeFileOutput),
+  aux_compress_text: generateJsonSchema(CompressTextOutput),
+  aux_review_diff: generateJsonSchema(ReviewDiffOutput),
+  aux_review_diff_by_file: generateJsonSchema(ReviewDiffByFileOutput),
+  aux_compress_command_output: generateJsonSchema(CompressCommandOutputOutput),
+  aux_report_tool_feedback: generateJsonSchema(ToolFeedbackOutputSchema),
 };
 
 // ---------------------------------------------------------------------------

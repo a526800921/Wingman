@@ -7,6 +7,7 @@ import { detectOutputKind } from "../chunking/command-output.js";
 import { parseTscDiagnostics, classifySourceKind } from "../diagnostics/tsc-parser.js";
 import type { CommandDiagnostic } from "../diagnostics/types.js";
 import { logger } from "../logger.js";
+import { sanitizeEvidence } from "../shared/sanitize.js";
 
 export interface CommandOutputFinding {
   kind: "test_failure" | "type_error" | "lint_error" | "build_error" | "runtime_exception" | "warning" | "info" | "unknown" | "test_success" | "build_success";
@@ -141,13 +142,6 @@ function extractStackTraces(output: string): CommandOutputFinding[] {
     });
   }
   return findings;
-}
-
-function sanitizeEvidence(text: string): string {
-  return text
-    .replace(/Bearer\s+[\w\-.]{20,}/gi, "Bearer ***REDACTED***")
-    .replace(/(api[_-]?key|apikey|secret|token|password)\s*[:=]\s*['"]?[\w\-.]{8,}['"]?/gi, "$1=***REDACTED***")
-    .replace(/(https?:\/\/)[^:@]+:[^@]+@/g, "$1***:***@");
 }
 
 // ── Success signal detection ──────────────────────────────

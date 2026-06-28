@@ -12,6 +12,7 @@
  */
 
 import { logger } from "../logger.js";
+import { isBinaryFile } from "../chunking/diff.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,54 +49,9 @@ export interface FallbackReviewResult {
 
 const DEFAULT_MAX_CHARS = 60_000;
 
-export const BINARY_EXTENSIONS = new Set([
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif",
-  ".bmp",
-  ".ico",
-  ".woff",
-  ".woff2",
-  ".ttf",
-  ".eot",
-  ".otf",
-  ".mp4",
-  ".mov",
-  ".avi",
-  ".webm",
-  ".mp3",
-  ".wav",
-  ".ogg",
-  ".pdf",
-  ".zip",
-  ".tar",
-  ".gz",
-  ".bz2",
-  ".7z",
-  ".rar",
-  ".exe",
-  ".dll",
-  ".so",
-  ".dylib",
-  ".wasm",
-  ".class",
-  ".jar",
-  ".war",
-]);
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Check whether a file path looks like a binary asset. */
-export function isBinaryFile(filePath: string): boolean {
-  const lower = filePath.toLowerCase();
-  for (const ext of BINARY_EXTENSIONS) {
-    if (lower.endsWith(ext)) return true;
-  }
-  return false;
-}
 
 /** Estimate the line count of a function by grouping consecutive `+` lines. */
 function maxConsecutiveAddedLines(addedLines: string[]): number {
