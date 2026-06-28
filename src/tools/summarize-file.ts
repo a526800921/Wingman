@@ -218,7 +218,8 @@ async function tryModelSummarization(
 
     // Normalize known camelCase → snake_case field names
     const CAMEL_CASE_MAP: Record<string, string> = {
-      must_verifyIn_source: "must_verify_in_source",
+      mustVerifyInSource: "must_verify_in_source",
+      isAuthoritative: "is_authoritative",
       importantSymbols: "important_symbols",
       fileKind: "file_kind",
       importantSections: "important_sections",
