@@ -84,7 +84,7 @@ MCP request
   → 非权威结果
 ```
 
-模型不可用或调用失败时，工具会进入 heuristic fallback。fallback 返回低置信度结构 signals（`heuristic_signals`），`analysis_status` 固定为 `partial`。调用方应检查 `_meta.fallback_used` 和 `analysis_status` 判断结果可靠性。
+模型不可用或调用失败时，工具会进入 heuristic fallback。fallback 返回低置信度结构 signals（`heuristic_signals`），`analysis_status` 为 `partial`（有 heuristic 结果）或 `incomplete`（无结果）。调用方应检查 `_meta.fallback_used` 和 `analysis_status` 判断结果可靠性。
 
 `aux_compress_command_output` 会区分 `valid`、`partial_valid`、`empty`、JSON/schema 失败和 transport failure。非零退出且模型响应不可用时，工具最多进行一次受限修复调用；已有稳定 adapter 的格式可进入 deterministic coverage guard，并明确标记 fallback 和分析状态。
 
@@ -96,7 +96,7 @@ MCP request
 - 输出中的 `is_authoritative` 固定为 `false`。
 - `openWorldHint` 表示输出可能不完整。
 - 模型结论必须尽量携带可回查 evidence；无法验证的结论应降级。
-- 模型未运行、部分失败和完整成功应使用不同状态表达；该能力正在统一到全部工具。
+- 模型未运行、部分失败和完整成功使用 `analysis_status`（`complete | partial | incomplete`）区分；所有工具已统一使用 `modelPathStatus()` / `fallbackStatus()` 计算。
 - `aux_summarize_file` 的文件访问限制在 `AUX_WORKSPACE_ROOT` 内，并拒绝绝对路径与路径穿越。
 - Chat client 强制执行 HTTPS（可显式允许本地 loopback HTTP）、SSRF 防护、超时与重试；配置 `AUX_MODEL_ALLOWED_HOSTS` 后还会执行 host allowlist。
 - Prompt 使用内容分隔、focus 数据隔离、无状态调用、JSON-only 和 schema 校验降低注入风险。
