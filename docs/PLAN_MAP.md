@@ -35,7 +35,7 @@ ADR-0001 模型优先
   │   ├─ command-output 全绿误标 failure
   │   ├─ summarize_file Swift fallback 误导参数
   │   └─ review_diff 当前日期幻觉
-  ├─ MCP 工具消费方反馈闭环（候选）
+  ├─ MCP 工具消费方反馈闭环（已完成）
   │   └─ aux_report_tool_feedback
   ├─ 前置验证方案
   │   └─ P0 fixtures / 契约 / 调用预算

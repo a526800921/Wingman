@@ -75,7 +75,7 @@
 | `ListToolsRequestSchema` handler | `src/index.ts` | 注册新 MCP 工具 | UNKNOWN → 实施后复核 |
 
 **实施后 detect_changes() 结果** (2026-06-28, compare 08ae8c7..cd96532):
-- 37 changed symbols, 68 affected processes, 13 changed files, **risk_level: critical**
+- 39 changed symbols（含 2 个治理文档触及符号）, 68 affected processes, 17 changed files（含 4 个治理文档文件）, **risk_level: critical**
 - `critical` 为预期结果：所有 5 个 handler 及其内部辅助函数因 `traceMeta` 参数传递被全体触及，变更纯机械无行为改变
 - 新增 `handleReportToolFeedback` 为独立 handler，无上游消费者
 - 现有工具语义不变，仅 `_meta` 新增两个 optional 字段
@@ -283,10 +283,6 @@ confidence >= medium
 
 ## 11. Schema Migration
 
-2026-06-28 完成验收，详见下方完成定义。
-
-## 11. Schema Migration
-
 | 旧行为 | 新字段/工具 | 兼容行为 | 消费方读取优先级 |
 |---|---|---|---|
 | trace id 只在内部日志中 | `_meta.trace_id` | 旧调用方可忽略新增字段 | 调用反馈工具时优先传 `_meta.trace_id` |
@@ -308,7 +304,7 @@ npm test             → 334 tests, 324 pass, 0 fail, 10 skipped
 npm run smoke        → 10 pass, 0 fail
 专项测试              → 8/8 pass（trace id 输出、反馈写入、日志禁用、敏感内容脱敏）
 聚合脚本              → 手动测试通过，生成按工具/类别统计和 fixture candidate 的 Markdown 报告
-detect_changes()     → 37 changed symbols, 68 affected, 13 files, risk_level: critical（预期范围内，纯机械变更）
+detect_changes()     → 39 changed symbols, 68 affected, 17 files, risk_level: critical（预期范围内，纯机械变更 + 治理文档收尾提交）
 ```
 
 ## 14. 完成定义
@@ -322,4 +318,4 @@ detect_changes()     → 37 changed symbols, 68 affected, 13 files, risk_level: 
 - [x] README / AGENTS 已说明何时应该主动反馈。
 - [x] migration note 已更新。
 - [x] build、test、smoke 通过。
-- [x] `detect_changes()` 只包含预期流程（37 symbols, 68 processes 全部为 traceMeta 参数传递触及，无异外变更）。
+- [x] `detect_changes()` 只包含预期流程（39 symbols（含 2 个治理文档触及）, 68 processes 全部为 traceMeta 参数传递触及 + 治理文档收尾变更，无异外功能变更）。
