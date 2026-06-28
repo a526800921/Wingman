@@ -29,8 +29,9 @@ import {
 } from "../fallback/compress-command-output.js";
 import { chunkCommandOutput, detectOutputKind } from "../chunking/command-output.js";
 import { deduplicateCommandFindings } from "../chunking/merge.js";
-import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
 import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
+import { createTraceContext, withDuration, assembleBaseMeta } from "../shared/handler-boilerplate.js";
+import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
 
 // ── Batching config ───────────────────────────────────────
 
@@ -121,6 +122,85 @@ function stripInternalFieldsFromArray(findings: InternalFinding[]): CommandOutpu
   });
 }
 
+// ── _meta factory ───────────────────────────────────────────
+
+interface CcoMetaParams {
+  provider: string;
+  modelName: string;
+  totalTokens: number;
+  promptTokens: number | undefined;
+  completionTokens: number | undefined;
+  inputTruncated: boolean;
+  fallbackUsed: boolean;
+  modelAttempted: boolean;
+  modelUsed: boolean;
+  analysisMode: "model_analysis" | "heuristic_fallback" | "mixed";
+  analysisStatus: CompressCommandOutputOutput["analysis_status"];
+  traceMeta: ReturnType<typeof createTraceMeta>;
+  modelSkipReason?: string;
+  modelFailureReason?: string;
+  confidence?: "high" | "medium" | "low";
+  limitations?: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  chunking?: any;
+  modelResponseStatus?: string;
+  modelCallAttempts?: number;
+  modelFindingsReceived?: number;
+  modelFindingsRejected?: number;
+  findingsRetained?: number;
+  verifiedFindings?: number;
+  partialFindings?: number;
+  unverifiedFindings?: number;
+  batchesSent?: number;
+  batchesSucceeded?: number;
+  batchesFailed?: number;
+  batchesOmittedByBudget?: number;
+  detectorHint?: string;
+  modelDetectedKind?: string;
+  kindMismatch?: boolean;
+}
+
+function buildCcoMeta(params: CcoMetaParams): Record<string, unknown> {
+  const base = assembleBaseMeta({
+    provider: params.provider,
+    modelName: params.modelName,
+    totalTokens: params.totalTokens,
+    promptTokens: params.promptTokens,
+    completionTokens: params.completionTokens,
+    inputTruncated: params.inputTruncated,
+    fallbackUsed: params.fallbackUsed,
+    analysisMode: params.analysisMode,
+    modelUsed: params.modelUsed,
+    modelAttempted: params.modelAttempted,
+    modelSkipReason: params.modelSkipReason,
+    modelFailureReason: params.modelFailureReason,
+    confidence: params.confidence,
+    limitations: params.limitations,
+    traceMeta: params.traceMeta,
+    overrides: { analysis_status: params.analysisStatus },
+  });
+
+  const extra: Record<string, unknown> = {};
+  if (params.chunking) extra.chunking = params.chunking;
+  if (params.modelResponseStatus) extra.model_response_status = params.modelResponseStatus;
+  if (params.modelCallAttempts !== undefined) extra.model_call_attempts = params.modelCallAttempts;
+  if (params.modelFindingsReceived !== undefined) extra.model_findings_received = params.modelFindingsReceived;
+  if (params.modelFindingsRejected !== undefined) extra.model_findings_rejected = params.modelFindingsRejected;
+  if (params.findingsRetained !== undefined) extra.findings_retained = params.findingsRetained;
+  if (params.verifiedFindings !== undefined) extra.verified_findings = params.verifiedFindings;
+  if (params.partialFindings !== undefined) extra.partial_findings = params.partialFindings;
+  if (params.unverifiedFindings !== undefined) extra.unverified_findings = params.unverifiedFindings;
+  if (params.batchesSent !== undefined) extra.batches_sent = params.batchesSent;
+  if (params.batchesSucceeded !== undefined) extra.batches_succeeded = params.batchesSucceeded;
+  if (params.batchesFailed !== undefined) extra.batches_failed = params.batchesFailed;
+  if (params.batchesOmittedByBudget !== undefined) extra.batches_omitted_by_budget = params.batchesOmittedByBudget;
+  if (params.detectorHint) extra.detector_hint = params.detectorHint;
+  if (params.modelDetectedKind) extra.model_detected_kind = params.modelDetectedKind;
+  if (params.kindMismatch !== undefined) extra.kind_mismatch = params.kindMismatch;
+
+  return { ...base, ...extra };
+}
+
 // ── Main handler ───────────────────────────────────────────
 
 export async function handleCompressCommandOutput(
@@ -129,9 +209,7 @@ export async function handleCompressCommandOutput(
   _testClient?: ChatClient,
 ): Promise<CallToolResult> {
   const t0 = Date.now();
-  const tid = createTraceId();
-  const traceMeta = createTraceMeta(tid, "aux_compress_command_output");
-  const log = traceLogger(tid);
+  const { tid, traceMeta, log } = createTraceContext("aux_compress_command_output");
 
   const validation = validateInput("aux_compress_command_output", input);
   if (!validation.ok) throw new McpError(ErrorCode.InvalidParams, validation.error);
@@ -142,7 +220,7 @@ export async function handleCompressCommandOutput(
   log.info("compress_command_output start", { command, outputLen: output.length, exit_code, analysis_mode });
 
   try { return await handleImpl(); }
-  finally { logDuration(tid, "compress_command_output done", t0); }
+  finally { await withDuration(tid, "compress_command_output done", t0); }
 
   async function handleImpl(): Promise<CallToolResult> {
     const provider = (config as AppConfig).modelProvider ?? process.env.AUX_MODEL_PROVIDER ?? "remote";
@@ -615,6 +693,7 @@ async function autoPath(
   // Step 1: always run fallback → canonical findings
   const fb = compressCommandOutputFallback(command, output, exitCode, maxChars);
   let canonicalFindings = [...fb.findings];
+  canonicalFindings.forEach(f => { f.evidence = sanitizeEvidence(f.evidence); });
   const parsedCount = fb.findings.length;
   let modelUsed = false;
   let modelCallMeta: ModelCallMeta = {
@@ -662,26 +741,25 @@ async function autoPath(
     suggested_next_commands: derived.suggested_next_commands,
     discarded_or_low_confidence: derived.discarded_or_low_confidence,
     is_authoritative: false,
-    _meta: {
+    _meta: buildCcoMeta({
       provider,
-      model: modelUsed ? modelName : "heuristic",
-      tokens_used: 0,
-      input_truncated: meta.input_truncated,
-      fallback_used: !modelUsed,
+      modelName: modelUsed ? modelName : "heuristic",
+      totalTokens: 0,
+      promptTokens: undefined,
+      completionTokens: undefined,
+      inputTruncated: meta.input_truncated,
+      fallbackUsed: !modelUsed,
+      modelAttempted: modelUsed,
+      modelUsed,
+      analysisMode: modelUsed ? "mixed" : "heuristic_fallback",
+      analysisStatus,
+      traceMeta,
+      modelSkipReason: !modelUsed && enrichmentMode === "off" ? "deterministic_fast_path" : !modelUsed ? "model_not_configured" : undefined,
       chunking: meta,
-      analysis_status: analysisStatus,
-      ...traceMeta,
-      ...buildDiagnosticMeta({
-        analysisMode: modelUsed ? "mixed" : "heuristic_fallback",
-        modelUsed,
-        modelAttempted: modelUsed,
-        modelSkipReason: !modelUsed && enrichmentMode === "off" ? "deterministic_fast_path" : !modelUsed ? "model_not_configured" : undefined,
-      }),
-      diagnostics_parsed: parsedCount,
-      findings_retained: canonicalFindings.length,
-      detector_hint: detectorHint,
+      findingsRetained: canonicalFindings.length,
+      detectorHint,
       ...modelCallMeta,
-    } as CompressCommandOutputOutput["_meta"],
+    }) as CompressCommandOutputOutput["_meta"],
   };
 
   return { content: [{ type: "text", text: JSON.stringify(outputData) }], isError: false };
@@ -699,6 +777,7 @@ function fallbackOnlyResult(
   traceMeta: ReturnType<typeof createTraceMeta>,
 ): CallToolResult {
   const fb = compressCommandOutputFallback(command, output, exitCode, output.length);
+  fb.findings.forEach(f => { f.evidence = sanitizeEvidence(f.evidence); });
   const derived = deriveFromFindings(fb.findings, command, exitCode, detectorHint, output.length, output.length);
 
   let analysisStatus: CompressCommandOutputOutput["analysis_status"] = "complete";
@@ -717,26 +796,25 @@ function fallbackOnlyResult(
     suggested_next_commands: derived.suggested_next_commands,
     discarded_or_low_confidence: derived.discarded_or_low_confidence,
     is_authoritative: false,
-    _meta: {
+    _meta: buildCcoMeta({
       provider,
-      model: "heuristic",
-      input_truncated: inputTruncated,
-      fallback_used: true,
-      feedback_recommended: true as const,
-      feedback_reason: "fallback_used" as const,
+      modelName: "heuristic",
+      totalTokens: 0,
+      promptTokens: undefined,
+      completionTokens: undefined,
+      inputTruncated,
+      fallbackUsed: true,
+      modelAttempted: false,
+      modelUsed: false,
+      analysisMode: "heuristic_fallback",
+      analysisStatus,
+      traceMeta,
+      modelSkipReason: "model_not_configured",
+      limitations: ["Deterministic parsing only, model enrichment not applied"],
       chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "fallback" },
-      analysis_status: analysisStatus,
-      ...traceMeta,
-      ...buildDiagnosticMeta({
-        analysisMode: "heuristic_fallback",
-        modelUsed: false,
-        modelAttempted: false,
-        modelSkipReason: "model_not_configured",
-        limitations: ["Deterministic parsing only, model enrichment not applied"],
-      }),
-      findings_retained: fb.findings.length,
-      detector_hint: detectorHint,
-    } as CompressCommandOutputOutput["_meta"],
+      findingsRetained: fb.findings.length,
+      detectorHint,
+    }) as CompressCommandOutputOutput["_meta"],
   };
 
   return { content: [{ type: "text", text: JSON.stringify(outputData) }], isError: false };
