@@ -9,7 +9,7 @@
 
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,6 +18,8 @@ const TMP_DIR = join(__dirname, "..", "tmp_feedback_test");
 
 // ── Environment setup: no API key, clean workspace ──────────
 const savedKey = process.env.AUX_MODEL_API_KEY;
+const savedFeedbackLogFile = process.env.AUX_FEEDBACK_LOG_FILE;
+const savedHome = process.env.HOME;
 delete process.env.AUX_MODEL_API_KEY;
 process.env.AUX_WORKSPACE_ROOT = TMP_DIR;
 
@@ -30,6 +32,10 @@ function cleanup() {
   if (existsSync(TMP_DIR)) rmSync(TMP_DIR, { recursive: true, force: true });
   if (savedKey) process.env.AUX_MODEL_API_KEY = savedKey;
   else delete process.env.AUX_MODEL_API_KEY;
+  if (savedFeedbackLogFile !== undefined) process.env.AUX_FEEDBACK_LOG_FILE = savedFeedbackLogFile;
+  else delete process.env.AUX_FEEDBACK_LOG_FILE;
+  if (savedHome !== undefined) process.env.HOME = savedHome;
+  else delete process.env.HOME;
 }
 
 // ── Tests ────────────────────────────────────────────────────
@@ -106,6 +112,31 @@ describe("MCP Tool Feedback Loop — Step 0 Red Light Tests", () => {
       // does not exist yet
       const mod = await import("../src/tools/report-tool-feedback.js");
       assert.equal(typeof mod.handleReportToolFeedback, "function");
+    });
+
+    it("should write default feedback log under the user home directory", async () => {
+      delete process.env.AUX_FEEDBACK_LOG_FILE;
+      process.env.HOME = TMP_DIR;
+      const mod = await import("../src/tools/report-tool-feedback.js");
+
+      const result = await mod.handleReportToolFeedback(
+        {
+          tool_name: "aux_compress_text",
+          issue_category: "low_signal_output",
+          severity: "medium",
+          summary: "Default path test feedback",
+          confidence: "high",
+        },
+        {},
+      );
+
+      assert.equal(result.isError, false);
+      const payload = JSON.parse(result.content[0].text as string);
+      const expectedLog = join(TMP_DIR, ".wingman", "feedback.jsonl");
+      assert.equal(payload.recorded, true);
+      assert.equal(payload.log_file, expectedLog);
+      assert.ok(existsSync(expectedLog));
+      assert.match(readFileSync(expectedLog, "utf-8"), /Default path test feedback/);
     });
   });
 

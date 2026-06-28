@@ -3,18 +3,19 @@
 /**
  * Feedback Aggregation Script
  *
- * Reads `.aux-feedback.jsonl` (or a specified input file) and generates a
+ * Reads `~/.wingman/feedback.jsonl` (or a specified input file) and generates a
  * markdown summary report in the specified output directory.
  *
  * Usage:
  *   npx tsx scripts/summarize-feedback.ts [options]
  *
  * Options:
- *   --input <path>   Path to the JSONL feedback file (default: .aux-feedback.jsonl)
+ *   --input <path>   Path to the JSONL feedback file (default: ~/.wingman/feedback.jsonl)
  *   --output <dir>   Output directory for the report (default: docs/feedback/)
  */
 
 import * as fs from "node:fs";
+import { homedir } from "node:os";
 import * as path from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -41,7 +42,7 @@ interface FeedbackEntry {
 
 function parseArgs(): { input: string; outputDir: string } {
   const args = process.argv.slice(2);
-  let input = ".aux-feedback.jsonl";
+  let input = path.join(homedir(), ".wingman", "feedback.jsonl");
   let outputDir = "docs/feedback";
 
   for (let i = 0; i < args.length; i++) {

@@ -189,7 +189,7 @@
 默认文件：
 
 ```text
-.aux-feedback.jsonl
+~/.wingman/feedback.jsonl
 ```
 
 环境变量：
@@ -201,7 +201,7 @@ AUX_FEEDBACK_LOG_FILE=off
 
 默认行为：
 
-- 未设置 `AUX_FEEDBACK_LOG_FILE` 时，反馈写入当前工作目录下的 `.aux-feedback.jsonl`。
+- 未设置 `AUX_FEEDBACK_LOG_FILE` 时，反馈写入用户目录下的 `~/.wingman/feedback.jsonl`，所有消费项目共享同一个反馈入口。
 - 设置为 `off`、`false` 或空字符串时，禁用文件写入，工具返回 `recorded = false` 并说明日志已关闭。
 - 不支持远端上传目标。
 

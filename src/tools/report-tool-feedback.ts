@@ -10,6 +10,7 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { McpError, ErrorCode, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -40,7 +41,7 @@ function successResult(payload: ToolFeedbackOutput): CallToolResult {
  *    sensitive-content rejection).
  * 2. Generate a feedback_id (fb_YYYYMMDD_XXXXXX).
  * 3. Determine the log file path from AUX_FEEDBACK_LOG_FILE (default:
- *    .aux-feedback.jsonl in cwd).  When set to "off", "false", or the empty
+ *    ~/.wingman/feedback.jsonl).  When set to "off", "false", or the empty
  *    string, the write is skipped and recorded is returned as false.
  * 4. Append one JSONL line to the log file.
  * 5. Catch every I/O error — the handler never throws from file writes.
@@ -79,7 +80,9 @@ export async function handleReportToolFeedback(
     });
   }
 
-  const logFile = envPath ? resolve(envPath) : resolve(process.cwd(), ".aux-feedback.jsonl");
+  const logFile = envPath
+    ? resolve(envPath)
+    : resolve(homedir(), ".wingman", "feedback.jsonl");
 
   // ---- Step 4: build JSONL entry -------------------------------------------
   const entry: Record<string, unknown> = {
