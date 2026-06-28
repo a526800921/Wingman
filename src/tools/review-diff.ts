@@ -27,10 +27,9 @@ import {
   extractJsonFromResponse,
 } from "../prompts.js";
 import { reviewDiffFallback } from "../fallback/review-diff.js";
-import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
 import { modelPathStatus, fallbackStatus } from "../model-runtime/status.js";
 import { hasApiKey, isModelAvailable, type ConfigLike } from "../shared/config-guard.js";
-import { createTraceContext, withDuration } from "../shared/handler-boilerplate.js";
+import { createTraceContext, withDuration, assembleBaseMeta } from "../shared/handler-boilerplate.js";
 import { createTraceMeta } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -276,37 +275,43 @@ async function modelReview(
     throw new Error("Model response is not valid JSON");
   }
 
-  // P2: collect heuristic signals from fallback for comparison
-  const heuristicSignals = reviewDiffFallback(diff, maxChars).possible_risks.map(r => ({
-    kind: r.risk,
-    location: r.location,
-    evidence: r.evidence ?? "",
-    confidence: (r.confidence === "high" ? "medium" : r.confidence ?? "low") as "low" | "medium",
-  }));
+  // P2: conditionally collect heuristic signals from fallback for comparison
+  let heuristicSignals: Array<{kind: string; location?: string; evidence: string; confidence: "low" | "medium"}> | undefined;
+
+  const modelConfidence = (parsed as Record<string, unknown>).confidence;
+  const shouldAttachHeuristicSignals = inputTruncated || modelConfidence === "medium" || modelConfidence === "low";
+
+  if (shouldAttachHeuristicSignals) {
+    const fbResult = reviewDiffFallback(diff, maxChars);
+    heuristicSignals = fbResult.possible_risks.map(r => ({
+      kind: r.risk,
+      location: r.location,
+      evidence: r.evidence ?? "",
+      confidence: (r.confidence === "high" ? "medium" : r.confidence ?? "low") as "low" | "medium",
+    }));
+  }
 
   // Attach _meta before schema validation (model prompt does not include _meta)
   const outputWithMeta = {
     ...(parsed as Record<string, unknown>),
     analysis_status: modelPathStatus(true, false, inputTruncated),
     is_authoritative: false,
-    heuristic_signals: heuristicSignals.length > 0 ? heuristicSignals : undefined,
-    _meta: {
+    heuristic_signals: heuristicSignals && heuristicSignals.length > 0 ? heuristicSignals : undefined,
+    _meta: assembleBaseMeta({
       provider,
-      model: config.modelName,
-      tokens_used: usage?.total_tokens ?? 0,
-      prompt_tokens: usage?.prompt_tokens,
-      completion_tokens: usage?.completion_tokens,
-      input_truncated: inputTruncated,
-      fallback_used: false,
-      analysis_status: modelPathStatus(true, false, inputTruncated),
-      ...traceMeta,
-      ...buildDiagnosticMeta({
-        analysisMode: "model_analysis",
-        modelUsed: true,
-        modelAttempted: true,
-        limitations: inputTruncated ? ["Diff was truncated, some changes may not have been reviewed"] : undefined,
-      }),
-    },
+      modelName: config.modelName,
+      totalTokens: usage?.total_tokens ?? 0,
+      promptTokens: usage?.prompt_tokens,
+      completionTokens: usage?.completion_tokens,
+      inputTruncated,
+      fallbackUsed: false,
+      analysisMode: "model_analysis",
+      modelUsed: true,
+      modelAttempted: true,
+      limitations: inputTruncated ? ["Diff was truncated, some changes may not have been reviewed"] : undefined,
+      traceMeta,
+      overrides: { analysis_status: modelPathStatus(true, false, inputTruncated) },
+    }),
   };
 
   const outputValidation = validateOutput("aux_review_diff", outputWithMeta);
@@ -344,24 +349,22 @@ function heuristicReview(
   const outputData = {
     ...fallbackResult,
     analysis_status: fallbackStatus("model_not_configured", true),
-    _meta: {
+    _meta: assembleBaseMeta({
       provider,
-      model: "heuristic",
-      tokens_used: 0,
-      input_truncated: inputTruncated,
-      fallback_used: true,
-      feedback_recommended: true as const,
-      feedback_reason: "fallback_used" as const,
-      analysis_status: fallbackStatus("model_not_configured", true),
-      ...traceMeta,
-      ...buildDiagnosticMeta({
-        analysisMode: "heuristic_fallback",
-        modelUsed: false,
-        modelAttempted: false,
-        modelSkipReason: "model_not_configured",
-        limitations: ["Pattern-based review only, no semantic analysis"],
-      }),
-    },
+      modelName: "heuristic",
+      totalTokens: 0,
+      promptTokens: undefined,
+      completionTokens: undefined,
+      inputTruncated,
+      fallbackUsed: true,
+      analysisMode: "heuristic_fallback",
+      modelUsed: false,
+      modelAttempted: false,
+      modelSkipReason: "model_not_configured",
+      limitations: ["Pattern-based review only, no semantic analysis"],
+      traceMeta,
+      overrides: { analysis_status: fallbackStatus("model_not_configured", true) },
+    }),
   };
 
   return {
