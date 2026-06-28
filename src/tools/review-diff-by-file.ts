@@ -21,7 +21,7 @@ import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
 import { chunkDiff } from "../chunking/diff.js";
 import type { ChunkMeta } from "../chunking/types.js";
 import { sortFindings, deduplicateFindings, buildFindingIdentity } from "../chunking/merge.js";
-import { createTraceId, traceLogger, logDuration } from "../logger.js";
+import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
 
 type ConfigLike = ReturnType<typeof loadConfig> | ReturnType<typeof loadConfigFallback>;
 
@@ -141,6 +141,7 @@ function buildFallbackOutput(
   fb: ReturnType<typeof reviewDiffByFileFallback>,
   provider: string,
   meta: ChunkMeta,
+  traceMeta: ReturnType<typeof createTraceMeta>,
 ): ReviewDiffByFileOutput {
   const fbFindings: DiffFinding[] = [];
   for (const fr of fb.files) {
@@ -176,6 +177,7 @@ function buildFallbackOutput(
       fallback_used: true,
       analysis_status: "partial" as const,
       chunking: meta,
+      ...traceMeta,
       ...buildDiagnosticMeta({
         analysisMode: "heuristic_fallback",
         modelUsed: false,
@@ -193,6 +195,7 @@ export async function handleReviewDiffByFile(
 ): Promise<CallToolResult> {
   const t0 = Date.now();
   const tid = createTraceId();
+  const traceMeta = createTraceMeta(tid, "aux_review_diff_by_file");
   const log = traceLogger(tid);
 
   const validation = validateInput("aux_review_diff_by_file", input);
@@ -311,7 +314,7 @@ export async function handleReviewDiffByFile(
       omitted_files: meta.omitted.map(o => ({ file: o.source ?? o.label, reason: o.reason })),
       is_authoritative: false,
       analysis_status: meta.input_truncated ? "partial" : "complete" as const,
-      _meta: { provider, model: (config as AppConfig).modelName, tokens_used: totalTokens, prompt_tokens: totalPromptTokens || undefined, completion_tokens: totalCompletionTokens || undefined, input_truncated: meta.input_truncated, fallback_used: false, chunking: meta, analysis_status: meta.input_truncated ? "partial" : "complete" as const, ...buildDiagnosticMeta({ analysisMode: "model_analysis", modelUsed: true, modelAttempted: true }) },
+      _meta: { provider, model: (config as AppConfig).modelName, tokens_used: totalTokens, prompt_tokens: totalPromptTokens || undefined, completion_tokens: totalCompletionTokens || undefined, input_truncated: meta.input_truncated, fallback_used: false, chunking: meta, analysis_status: meta.input_truncated ? "partial" : "complete" as const, ...traceMeta, ...buildDiagnosticMeta({ analysisMode: "model_analysis", modelUsed: true, modelAttempted: true }) },
     };
 
     const outValidation = validateOutput("aux_review_diff_by_file", output);
@@ -325,7 +328,7 @@ export async function handleReviewDiffByFile(
 
   function fallbackResult(provider: string, meta: ChunkMeta): CallToolResult {
     const fb = reviewDiffByFileFallback(originalDiff, max_chars_per_file, max_files);
-    const output = buildFallbackOutput(fb, provider, meta);
+    const output = buildFallbackOutput(fb, provider, meta, traceMeta);
     return { content: [{ type: "text", text: JSON.stringify(output) }], isError: false };
   }
 }

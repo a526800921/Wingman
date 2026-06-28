@@ -29,7 +29,7 @@ import {
 } from "../prompts.js";
 import { reviewDiffFallback } from "../fallback/review-diff.js";
 import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
-import { createTraceId, traceLogger, logDuration } from "../logger.js";
+import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Smart diff truncation
@@ -193,6 +193,7 @@ export async function handleReviewDiff(
 ): Promise<CallToolResult> {
   const t0 = Date.now();
   const tid = createTraceId();
+  const traceMeta = createTraceMeta(tid, "aux_review_diff");
   const log = traceLogger(tid);
 
   // ---- 1. Validate input ----
@@ -242,7 +243,7 @@ export async function handleReviewDiff(
 
   if (modelAvailable) {
     try {
-      return await modelReview(config, diff, focus, inputTruncated, provider);
+      return await modelReview(config, diff, focus, inputTruncated, provider, traceMeta);
     } catch (err: unknown) {
       log.warn(
         "review-diff: model path failed, falling back to heuristic",
@@ -257,7 +258,7 @@ export async function handleReviewDiff(
   }
 
   // ---- 5. Heuristic fallback path ----
-  return heuristicReview(diff, maxChars, inputTruncated, provider);
+  return heuristicReview(diff, maxChars, inputTruncated, provider, traceMeta);
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +271,7 @@ async function modelReview(
   focus: string | undefined,
   inputTruncated: boolean,
   provider: string,
+  traceMeta: ReturnType<typeof createTraceMeta>,
 ): Promise<CallToolResult> {
   log.info("review-diff: attempting model review", {
     model: config.modelName,
@@ -319,6 +321,7 @@ async function modelReview(
       input_truncated: inputTruncated,
       fallback_used: false,
       analysis_status: inputTruncated ? "partial" : "complete",
+      ...traceMeta,
       ...buildDiagnosticMeta({
         analysisMode: "model_analysis",
         modelUsed: true,
@@ -354,6 +357,7 @@ function heuristicReview(
   maxChars: number,
   inputTruncated: boolean,
   provider: string,
+  traceMeta: ReturnType<typeof createTraceMeta>,
 ): CallToolResult {
   log.info("review-diff: using heuristic fallback");
 
@@ -369,6 +373,7 @@ function heuristicReview(
       input_truncated: inputTruncated,
       fallback_used: true,
       analysis_status: "partial" as const,
+      ...traceMeta,
       ...buildDiagnosticMeta({
         analysisMode: "heuristic_fallback",
         modelUsed: false,

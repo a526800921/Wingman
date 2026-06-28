@@ -28,7 +28,7 @@ import {
 } from "../fallback/summarize-file.js";
 import { splitPrefixSuffix, joinPrefixSuffix } from "../model-runtime/truncation.js";
 import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
-import { createTraceId, traceLogger, logDuration } from "../logger.js";
+import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -86,6 +86,7 @@ export async function handleSummarizeFile(
 ): Promise<CallToolResult> {
   const t0 = Date.now();
   const tid = createTraceId();
+  const traceMeta = createTraceMeta(tid, "aux_summarize_file");
   const log = traceLogger(tid);
 
   // ---- Step 1: validate input ----------------------------------------------
@@ -178,6 +179,7 @@ export async function handleSummarizeFile(
       maxChars,
       inputTruncated,
       provider,
+      traceMeta,
     );
   } else {
     log.info("summarize_file: model not available, using fallback", {
@@ -189,6 +191,7 @@ export async function handleSummarizeFile(
       maxChars,
       inputTruncated,
       provider,
+      traceMeta,
     );
   }
 
@@ -208,6 +211,7 @@ async function tryModelSummarization(
   maxChars: number,
   inputTruncated: boolean,
   provider: string,
+  traceMeta: ReturnType<typeof createTraceMeta>,
 ): Promise<SummarizeFileOutput> {
   const client = new ChatClient(config);
 
@@ -229,7 +233,7 @@ async function tryModelSummarization(
       log.warn(
         "summarize_file: model returned non-JSON, falling back to heuristic",
       );
-      return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated, provider);
+      return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated, provider, traceMeta);
     }
 
     // Step 5f: attach _meta + force is_authoritative (model prompt does not include _meta)
@@ -246,6 +250,7 @@ async function tryModelSummarization(
         input_truncated: inputTruncated,
         fallback_used: false,
         analysis_status: inputTruncated ? "partial" as const : "complete" as const,
+        ...traceMeta,
         ...buildDiagnosticMeta({
           analysisMode: "model_analysis",
           modelUsed: true,
@@ -262,7 +267,7 @@ async function tryModelSummarization(
         "summarize_file: model output failed schema validation, falling back to heuristic",
         { error: outputValidation.error },
       );
-      return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated, provider);
+      return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated, provider, traceMeta);
     }
 
     log.info("summarize_file: model summarization succeeded", {
@@ -285,7 +290,7 @@ async function tryModelSummarization(
       { error: message },
     );
 
-    return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated, provider);
+    return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated, provider, traceMeta);
   }
 }
 
@@ -305,6 +310,7 @@ function buildFallbackResult(
   maxChars: number,
   inputTruncated: boolean,
   provider: string,
+  traceMeta: ReturnType<typeof createTraceMeta>,
 ): SummarizeFileOutput {
   // If we were already in the fallback path (model unavailable), the
   // relativePath is the original user path and can be used directly.
@@ -341,6 +347,7 @@ function buildFallbackResult(
         input_truncated: inputTruncated,
         fallback_used: true,
         analysis_status: "partial" as const,
+        ...traceMeta,
         ...buildDiagnosticMeta({
           analysisMode: "heuristic_fallback",
           modelUsed: false,
@@ -377,6 +384,7 @@ function buildFallbackResult(
       input_truncated: inputTruncated,
       fallback_used: true,
       analysis_status: "partial" as const,
+      ...traceMeta,
       ...buildDiagnosticMeta({
         analysisMode: "heuristic_fallback",
         modelUsed: false,

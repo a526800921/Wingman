@@ -59,6 +59,9 @@ export const ResultMetaSchema = z.strictObject({
   analysis_mode: z.enum(["model_analysis", "heuristic_fallback", "mixed", "unsupported"]).optional(),
   confidence: ConfidenceSchema.optional(),
   limitations: z.array(z.string()).optional(),
+  // MCP Tool Feedback Loop: caller-facing identifiers
+  trace_id: z.string().optional(),
+  tool_name: z.string().optional(),
 });
 export type ResultMeta = z.infer<typeof ResultMetaSchema>;
 
@@ -313,6 +316,9 @@ export const ReviewDiffByFileOutput = authoritativeMarker.merge(
       // Phase 2: number of files included in aggregated output
       files_analyzed: z.number().int().nonnegative().optional(),
       files_omitted: z.number().int().nonnegative().optional(),
+      // MCP Tool Feedback Loop: caller-facing identifiers
+      trace_id: z.string().optional(),
+      tool_name: z.string().optional(),
     }),
   }),
 );
@@ -407,6 +413,9 @@ export const CompressCommandOutputOutput = authoritativeMarker.merge(
       detector_hint: z.string().optional(),
       model_detected_kind: z.string().optional(),
       kind_mismatch: z.boolean().optional(),
+      // MCP Tool Feedback Loop: caller-facing identifiers
+      trace_id: z.string().optional(),
+      tool_name: z.string().optional(),
     }),
   }),
 );

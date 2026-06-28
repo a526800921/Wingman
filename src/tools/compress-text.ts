@@ -22,7 +22,7 @@ import {
 import { compressTextFallback } from "../fallback/compress-text.js";
 import { splitPrefixSuffix, joinPrefixSuffix } from "../model-runtime/truncation.js";
 import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
-import { createTraceId, traceLogger, logDuration } from "../logger.js";
+import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Input shape (after validation)
@@ -45,6 +45,7 @@ export async function handleCompressText(
 ): Promise<CallToolResult> {
   const t0 = Date.now();
   const tid = createTraceId();
+  const traceMeta = createTraceMeta(tid, "aux_compress_text");
   const log = traceLogger(tid);
 
   // ---- 1. Validate input ----
@@ -91,14 +92,14 @@ export async function handleCompressText(
   const modelAvailable = hasModelConfig() && isFullConfig;
 
   if (modelAvailable) {
-    const result = await tryModelCompression(text, data, config as AppConfig, provider);
+    const result = await tryModelCompression(text, data, config as AppConfig, provider, traceMeta);
     if (result) {
       return result;
     }
   }
 
   // ---- 4. Fallback path ----
-  return buildFallbackResult(text, data.label, maxChars, inputTruncated, provider);
+  return buildFallbackResult(text, data.label, maxChars, inputTruncated, provider, traceMeta);
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +111,7 @@ async function tryModelCompression(
   data: CompressTextValidatedInput,
   appConfig: AppConfig,
   provider: string,
+  traceMeta: ReturnType<typeof createTraceMeta>,
 ): Promise<CallToolResult | null> {
   const client = new ChatClient(appConfig);
 
@@ -174,6 +176,7 @@ async function tryModelCompression(
       input_truncated: text.length < data.text.length,
       fallback_used: false,
       analysis_status: "complete" as const,
+      ...traceMeta,
       ...buildDiagnosticMeta({
         analysisMode: "model_analysis",
         modelUsed: true,
@@ -219,6 +222,7 @@ function buildFallbackResult(
   maxChars: number,
   inputTruncated: boolean,
   provider: string,
+  traceMeta: ReturnType<typeof createTraceMeta>,
 ): CallToolResult {
   log.info("compress-text: using heuristic fallback compression", {
     label,
@@ -238,6 +242,7 @@ function buildFallbackResult(
       input_truncated: inputTruncated,
       fallback_used: true,
       analysis_status: "partial" as const,
+      ...traceMeta,
       ...buildDiagnosticMeta({
         analysisMode: "heuristic_fallback",
         modelUsed: false,

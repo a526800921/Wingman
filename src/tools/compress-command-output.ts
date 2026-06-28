@@ -29,7 +29,7 @@ import {
 import { chunkCommandOutput, detectOutputKind } from "../chunking/command-output.js";
 import { deduplicateCommandFindings } from "../chunking/merge.js";
 import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
-import { createTraceId, traceLogger, logDuration } from "../logger.js";
+import { createTraceId, createTraceMeta, traceLogger, logDuration } from "../logger.js";
 
 function sanitizeEvidence(text: string): string {
   return text
@@ -142,6 +142,7 @@ export async function handleCompressCommandOutput(
 ): Promise<CallToolResult> {
   const t0 = Date.now();
   const tid = createTraceId();
+  const traceMeta = createTraceMeta(tid, "aux_compress_command_output");
   const log = traceLogger(tid);
 
   const validation = validateInput("aux_compress_command_output", input);
@@ -164,24 +165,24 @@ export async function handleCompressCommandOutput(
 
     // Mode: deterministic_only → skip model entirely
     if (analysis_mode === "deterministic_only" || !modelAvailable) {
-      return fallbackOnlyResult(provider, cappedOutput, inputTruncated, command, exit_code, detectorHint);
+      return fallbackOnlyResult(provider, cappedOutput, inputTruncated, command, exit_code, detectorHint, traceMeta);
     }
 
     const client = _testClient ?? new ChatClient(config as AppConfig);
     if (!client.isAvailable()) {
       log.info("compress-command-output: ChatClient unavailable, using fallback");
-      return fallbackOnlyResult(provider, cappedOutput, inputTruncated, command, exit_code, detectorHint);
+      return fallbackOnlyResult(provider, cappedOutput, inputTruncated, command, exit_code, detectorHint, traceMeta);
     }
 
     const modelName = (config as AppConfig).modelName;
 
     // ── Model-first path ────────────────────────────────
     if (analysis_mode === "model_first") {
-      return await modelFirstPath(client, provider, modelName, cappedOutput, command, exit_code, focus, detectorHint, inputTruncated, log);
+      return await modelFirstPath(client, provider, modelName, cappedOutput, command, exit_code, focus, detectorHint, inputTruncated, log, traceMeta);
     }
 
     // ── Auto path (existing batch/parser hybrid) ─────────
-    return await autoPath(client, provider, modelName, cappedOutput, command, exit_code, focus, detectorHint, inputTruncated, max_chars, log);
+    return await autoPath(client, provider, modelName, cappedOutput, command, exit_code, focus, detectorHint, inputTruncated, max_chars, log, traceMeta);
   }
 }
 
@@ -199,6 +200,7 @@ async function modelFirstPath(
   detectorHint: string,
   inputTruncated: boolean,
   log: ReturnType<typeof traceLogger>,
+  traceMeta: ReturnType<typeof createTraceMeta>,
 ): Promise<CallToolResult> {
   const systemPrompt = buildModelFirstSystemPrompt();
   const userMsg = buildModelFirstUserMessage(output, command, exitCode, focus, detectorHint);
@@ -318,7 +320,7 @@ async function modelFirstPath(
     }
   } else {
     // Large input: chunk by generic boundaries, then batch
-    return await autoPath(client, provider, modelName, output, command, exitCode, focus, detectorHint, inputTruncated, output.length, log);
+    return await autoPath(client, provider, modelName, output, command, exitCode, focus, detectorHint, inputTruncated, output.length, log, traceMeta);
   }
 
   const deterministicFallback = compressCommandOutputFallback(command, output, exitCode, output.length);
@@ -358,6 +360,7 @@ async function modelFirstPath(
         fallback_used: true,
         chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "model-first-deterministic-success-guard" },
         analysis_status: "complete",
+        ...traceMeta,
         ...buildDiagnosticMeta({
           analysisMode: "heuristic_fallback",
           modelUsed: false,
@@ -490,6 +493,7 @@ async function modelFirstPath(
             detector_hint: detectorHint,
             model_detected_kind: modelDetectedKind,
             kind_mismatch: modelDetectedKind ? modelDetectedKind !== detectorHint : false,
+            ...traceMeta,
             ...buildDiagnosticMeta({
               analysisMode: "heuristic_fallback",
               modelUsed: false,
@@ -559,6 +563,7 @@ async function modelFirstPath(
       fallback_used: fallbackUsed,
       chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "model-first" },
       analysis_status: analysisStatus,
+      ...traceMeta,
       ...buildDiagnosticMeta({
         analysisMode: fallbackUsed ? "mixed" : "model_analysis",
         modelUsed: !fallbackUsed,
@@ -592,7 +597,7 @@ async function modelFirstPath(
     log.warn("compress-command-output: model-first output validation failed, using fallback", {
       error: outValidation.error,
     });
-    return fallbackOnlyResult(provider, output, inputTruncated, command, exitCode, detectorHint);
+    return fallbackOnlyResult(provider, output, inputTruncated, command, exitCode, detectorHint, traceMeta);
   }
 
   return { content: [{ type: "text", text: JSON.stringify(outValidation.data) }], isError: false };
@@ -613,6 +618,7 @@ async function autoPath(
   inputTruncated: boolean,
   maxChars: number,
   log: ReturnType<typeof traceLogger>,
+  traceMeta: ReturnType<typeof createTraceMeta>,
 ): Promise<CallToolResult> {
   // Step 1: always run fallback → canonical findings
   const fb = compressCommandOutputFallback(command, output, exitCode, maxChars);
@@ -672,6 +678,7 @@ async function autoPath(
       fallback_used: !modelUsed,
       chunking: meta,
       analysis_status: analysisStatus,
+      ...traceMeta,
       ...buildDiagnosticMeta({
         analysisMode: modelUsed ? "mixed" : "heuristic_fallback",
         modelUsed,
@@ -697,6 +704,7 @@ function fallbackOnlyResult(
   command: string | undefined,
   exitCode: number | undefined,
   detectorHint: string,
+  traceMeta: ReturnType<typeof createTraceMeta>,
 ): CallToolResult {
   const fb = compressCommandOutputFallback(command, output, exitCode, output.length);
   const derived = deriveFromFindings(fb.findings, command, exitCode, detectorHint, output.length, output.length);
@@ -724,6 +732,7 @@ function fallbackOnlyResult(
       fallback_used: true,
       chunking: { total_chunks: 1, analyzed_chunks: 1, omitted_chunks: 0, omitted: [], input_truncated: inputTruncated, chunking_strategy: "fallback" },
       analysis_status: analysisStatus,
+      ...traceMeta,
       ...buildDiagnosticMeta({
         analysisMode: "heuristic_fallback",
         modelUsed: false,

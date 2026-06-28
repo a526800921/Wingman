@@ -141,3 +141,17 @@ export function logDuration(
 export function getLogFilePath(): string | null {
   return getLogFile();
 }
+
+// ---------------------------------------------------------------------------
+// Trace meta helper — used by tool handlers to inject trace_id & tool_name
+// into output _meta so callers can reference findings when submitting feedback
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the `trace_id` / `tool_name` fields for output `_meta`.
+ * Handlers call this once at the top and spread the return into every `_meta`
+ * they construct (model path, fallback path, and any error/minimal paths).
+ */
+export function createTraceMeta(traceId: string, toolName: string) {
+  return { trace_id: traceId, tool_name: toolName };
+}
