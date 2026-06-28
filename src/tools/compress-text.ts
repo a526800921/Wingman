@@ -14,8 +14,7 @@ import type { AppConfig } from "../config.js";
 import { ChatClient } from "../chat-client.js";
 import { validateInput, validateOutput } from "../schema.js";
 import { hasApiKey, isModelAvailable, type ConfigLike } from "../shared/config-guard.js";
-import { createTraceContext, withDuration } from "../shared/handler-boilerplate.js";
-import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
+import { createTraceContext, withDuration, assembleBaseMeta } from "../shared/handler-boilerplate.js";
 import { createTraceMeta } from "../logger.js";
 import {
   buildCompressTextSystemPrompt,
@@ -87,7 +86,7 @@ export async function handleCompressText(
   const modelAvailable = isModelAvailable(config);
 
   if (modelAvailable) {
-    const result = await tryModelCompression(text, data, config as AppConfig, provider, traceMeta);
+    const result = await tryModelCompression(text, data, config as AppConfig, provider, traceMeta, inputTruncated);
     if (result) {
       return result;
     }
@@ -107,6 +106,7 @@ async function tryModelCompression(
   appConfig: AppConfig,
   provider: string,
   traceMeta: ReturnType<typeof createTraceContext>["traceMeta"],
+  inputTruncated: boolean,
 ): Promise<CallToolResult | null> {
   const client = new ChatClient(appConfig);
 
@@ -155,24 +155,22 @@ async function tryModelCompression(
       return null;
     }
 
-    (parsed as Record<string, unknown>).analysis_status = modelPathStatus(true, false, false);
+    (parsed as Record<string, unknown>).analysis_status = modelPathStatus(true, false, inputTruncated);
     (parsed as Record<string, unknown>).is_authoritative = false;
-    (parsed as Record<string, unknown>)._meta = {
+    (parsed as Record<string, unknown>)._meta = assembleBaseMeta({
       provider,
-      model: appConfig.modelName,
-      tokens_used: usage?.total_tokens ?? 0,
-      prompt_tokens: usage?.prompt_tokens,
-      completion_tokens: usage?.completion_tokens,
-      input_truncated: text.length < data.text.length,
-      fallback_used: false,
-      analysis_status: modelPathStatus(true, false, false),
-      ...traceMeta,
-      ...buildDiagnosticMeta({
-        analysisMode: "model_analysis",
-        modelUsed: true,
-        modelAttempted: true,
-      }),
-    };
+      modelName: appConfig.modelName,
+      totalTokens: usage?.total_tokens ?? 0,
+      promptTokens: usage?.prompt_tokens,
+      completionTokens: usage?.completion_tokens,
+      inputTruncated,
+      fallbackUsed: false,
+      analysisMode: "model_analysis",
+      modelUsed: true,
+      modelAttempted: true,
+      traceMeta,
+      overrides: { analysis_status: modelPathStatus(true, false, inputTruncated) },
+    });
 
     // Validate the combined output against the full CompressTextOutput schema
     const outputResult = validateOutput("aux_compress_text", parsed);
@@ -225,24 +223,22 @@ function buildFallbackResult(
   const outputData = {
     ...fallbackResult,
     analysis_status: fallbackStatus("model_not_configured", true),
-    _meta: {
+    _meta: assembleBaseMeta({
       provider,
-      model: "heuristic",
-      tokens_used: 0,
-      input_truncated: inputTruncated,
-      fallback_used: true,
-      feedback_recommended: true as const,
-      feedback_reason: "fallback_used" as const,
-      analysis_status: fallbackStatus("model_not_configured", true),
-      ...traceMeta,
-      ...buildDiagnosticMeta({
-        analysisMode: "heuristic_fallback",
-        modelUsed: false,
-        modelAttempted: false,
-        modelSkipReason: "model_not_configured",
-        limitations: ["Heuristic compression, may miss semantic relationships"],
-      }),
-    },
+      modelName: "heuristic",
+      totalTokens: 0,
+      promptTokens: undefined,
+      completionTokens: undefined,
+      inputTruncated,
+      fallbackUsed: true,
+      analysisMode: "heuristic_fallback",
+      modelUsed: false,
+      modelAttempted: false,
+      modelSkipReason: "model_not_configured",
+      limitations: ["Heuristic compression, may miss semantic relationships"],
+      traceMeta,
+      overrides: { analysis_status: fallbackStatus("model_not_configured", true) },
+    }),
   };
 
   // Validate the assembled output for safety (should always pass since the

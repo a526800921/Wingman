@@ -219,6 +219,7 @@ export const CompressTextOutput = authoritativeMarker.merge(
     key_facts: z.array(z.string()),
     discarded_or_low_confidence: z.array(z.string()),
     must_verify_in_source: z.boolean(),
+    heuristic_signals: z.array(HeuristicSignalSchema).optional(),
     _meta: ResultMetaSchema,
   }),
 );

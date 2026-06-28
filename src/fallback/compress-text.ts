@@ -6,6 +6,8 @@
  */
 
 import { logger } from "../logger.js";
+import { splitPrefixSuffix, joinPrefixSuffix } from "../model-runtime/truncation.js";
+import type { HeuristicSignal } from "../schema.js";
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -15,6 +17,7 @@ export interface FallbackCompressResult {
   summary: string;
   key_facts: string[];
   discarded_or_low_confidence: string[];
+  heuristic_signals?: HeuristicSignal[];
   must_verify_in_source: boolean;
   is_authoritative: false;
 }
@@ -75,7 +78,7 @@ interface ScoredLine {
  * Assign an importance score to a single line.
  * Error/critical = 3, warning = 2, success/completion = 1, no match = 0.
  */
-export function scoreLine(line: string): number {
+function scoreLine(line: string): number {
   if (ERROR_RE.test(line)) return 3;
   if (WARN_RE.test(line)) return 2;
   if (SUCCESS_RE.test(line)) return 1;
@@ -94,7 +97,7 @@ function countMatches(text: string, re: RegExp): number {
 }
 
 /** Collect unique matches of `re` in `text`. */
-export function collectMatches(text: string, re: RegExp): string[] {
+function collectMatches(text: string, re: RegExp): string[] {
   const r = new RegExp(re.source, re.flags);
   const seen = new Set<string>();
   let m: RegExpExecArray | null;
@@ -140,9 +143,17 @@ export function compressTextFallback(
     };
   }
 
-  // ---- 2. Truncate ----
+  // ---- 2. Truncate (smart: preserve prefix + suffix) ----
   const truncated = originalLength > limit;
-  const workingText = truncated ? text.slice(0, limit) : text;
+  let workingText: string;
+  let omittedChars = 0;
+  if (truncated) {
+    const split = splitPrefixSuffix(text, limit);
+    workingText = joinPrefixSuffix(split.prefix, split.suffix, split.omittedChars);
+    omittedChars = split.omittedChars;
+  } else {
+    workingText = text;
+  }
 
   // ---- 3. Split into lines ----
   const allLines = workingText.split(/\r?\n/);
@@ -260,6 +271,23 @@ export function compressTextFallback(
 
   discarded.push("Non-text content (if any) not parsed");
 
+  // ---- 9. Build heuristic_signals ----
+  const heuristic_signals: HeuristicSignal[] = [
+    { kind: "line_counts", evidence: `${totalLines} total, ${nonEmptyCount} non-empty`, confidence: "medium" },
+  ];
+  if (errorCount > 0) {
+    heuristic_signals.push({ kind: "error_count", evidence: `${errorCount} error-level lines`, confidence: "medium" });
+  }
+  if (warnCount > 0) {
+    heuristic_signals.push({ kind: "warn_count", evidence: `${warnCount} warning lines`, confidence: "medium" });
+  }
+  if (pathCount > 0) {
+    heuristic_signals.push({ kind: "file_paths", evidence: `${pathCount} file path(s) detected`, confidence: "medium" });
+  }
+  if (truncated) {
+    heuristic_signals.push({ kind: "truncation", evidence: `Truncated from ${originalLength} to ${limit} chars, ${omittedChars} chars omitted`, confidence: "medium" });
+  }
+
   logger.debug(
     `compressTextFallback done: lines=${totalLines}, errors=${errorCount}, warns=${warnCount}, keyFacts=${keyFactLines.length}`,
   );
@@ -268,6 +296,7 @@ export function compressTextFallback(
     summary,
     key_facts,
     discarded_or_low_confidence: discarded,
+    heuristic_signals,
     must_verify_in_source: true,
     is_authoritative: false as const,
   };
