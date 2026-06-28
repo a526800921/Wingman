@@ -102,16 +102,13 @@ describe("Smoke tests (no API key, fallback mode)", () => {
     assert.equal(typeof json.summary, "string");
     assert.ok(json.summary.length > 0, "summary should not be empty");
     assert.ok(Array.isArray(json.important_symbols), "important_symbols should be an array");
-    assert.ok(json.important_symbols.length > 0, "should find at least one symbol");
+    assert.equal(json.important_symbols.length, 0, "fallback no longer extracts symbols");
     assert.equal(json.is_authoritative, false);
     assert.equal(json.must_verify_in_source, true);
     assert.equal(json._meta.fallback_used, true);
     assert.equal(json._meta.model, "heuristic");
-
-    // Should find Greeter class and greet function
-    const names = json.important_symbols.map((s: any) => s.name);
-    assert.ok(names.includes("Greeter"), "should find Greeter class");
-    assert.ok(names.includes("greet"), "should find greet function");
+    assert.equal(json.analysis_status, "incomplete", "fallback should be incomplete");
+    assert.ok(Array.isArray(json.heuristic_signals), "should have heuristic_signals");
 
     // Should have uncertainties
     assert.ok(Array.isArray(json.uncertainties));

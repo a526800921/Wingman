@@ -175,7 +175,7 @@ describe("RED: summarize_file — Swift fallback parameter count", () => {
     delete process.env.AUX_WORKSPACE_ROOT;
   });
 
-  it("RED: Swift init(apiClient:cache:) is NOT reported as 0 parameters", async () => {
+  it("RED: Fallback no longer extracts symbols (no misleading parameter counts)", async () => {
     const { summarizeFileFallback } = await import(
       "../src/fallback/summarize-file.js"
     );
@@ -183,26 +183,12 @@ describe("RED: summarize_file — Swift fallback parameter count", () => {
       TMP_DIR,
       "swift-service.swift",
     );
-
-    const initSym = result.important_symbols.find((s) => s.name === "init");
-    assert.ok(initSym, "Should find init symbol");
-
-    // RED: The current fallback reports "function takes 0 parameters"
-    // for init(apiClient:cache:). This is misleading — the parameter
-    // count is unknown, not zero.
-    const role = initSym.role ?? "";
-
-    // RED assertion: role should NOT claim "0 parameters" when parameters exist
-    const hasZeroParams = /\b0 parameters?\b/.test(role);
-    assert.ok(
-      !hasZeroParams,
-      `RED: init role should NOT report "0 parameters". ` +
-      `Got: "${role}". ` +
-      `The fallback should report parameters_unknown or omit the count rather than defaulting to 0.`,
-    );
+    // Fallback is purely mechanical — no parameter count issues to fix
+    assert.equal(result.important_symbols.length, 0, "Fallback no longer extracts symbols");
+    assert.ok(Array.isArray(result.heuristic_signals), "Should have heuristic_signals");
   });
 
-  it("RED: Swift fetchProfile(for:) reports correct parameter count", async () => {
+  it("RED: Fallback provides mechanical signals for Swift files", async () => {
     const { summarizeFileFallback } = await import(
       "../src/fallback/summarize-file.js"
     );
@@ -210,19 +196,11 @@ describe("RED: summarize_file — Swift fallback parameter count", () => {
       TMP_DIR,
       "swift-service.swift",
     );
-
-    const sym = result.important_symbols.find((s) => s.name === "fetchProfile");
-    assert.ok(sym, "Should find fetchProfile symbol");
-    // fetchProfile(for userId: String) has 1 parameter — this should work
-    const role = sym.role ?? "";
-    const hasOneParam = /\b1 parameters?\b/.test(role);
-    assert.ok(
-      hasOneParam,
-      `RED: fetchProfile should report 1 parameter. Got: "${role}"`,
-    );
+    assert.ok(result.heuristic_signals.some((s: any) => s.kind === "file_kind"), "Should detect file kind");
+    assert.ok(result.heuristic_signals.some((s: any) => s.kind === "line_counts"), "Should count lines");
   });
 
-  it("RED: non-TS/JS fallback marks analysis_status as partial and confidence as low", async () => {
+  it("RED: non-TS/JS fallback marks analysis_status as incomplete", async () => {
     const { handleSummarizeFile } = await import(
       "../src/tools/summarize-file.js"
     );
@@ -232,19 +210,10 @@ describe("RED: summarize_file — Swift fallback parameter count", () => {
     );
     const data = JSON.parse(output.content[0].text as string);
 
-    // RED: Swift files should have explicit low-confidence markers
-    assert.equal(
-      data.analysis_status,
-      "partial",
-      "RED: Non-TS/JS fallback should set analysis_status to partial",
-    );
-    assert.equal(
-      data._meta.fallback_used,
-      true,
-      "RED: Non-TS/JS fallback should have fallback_used: true",
-    );
-    // RED: The _meta should indicate low confidence for non-TS/JS
-    // (current implementation may or may not have this field)
+    // Fallback now returns "incomplete" for all files — no semantic analysis
+    assert.equal(data.analysis_status, "incomplete");
+    assert.equal(data._meta.fallback_used, true);
+    assert.equal(data.important_symbols.length, 0, "No symbol extraction");
   });
 });
 

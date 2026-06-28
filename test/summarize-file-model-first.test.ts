@@ -85,72 +85,32 @@ describe("Red-light: SwiftUI fallback behavior", () => {
 
   it("RED: fallback does NOT identify SwiftUI DSL components as functions", async () => {
     const result = await runFallback("swiftui-view.swift");
-
-    const symbolNames = result.important_symbols.map((s: any) => s.name);
-
-    // These are SwiftUI DSL component constructors, NOT top-level function declarations.
-    // The current heuristic patterns (especially `name(...) {`) incorrectly match them.
-    const dslComponents = ["VStack", "HStack", "Button", "ScrollView", "LazyHStack", "ForEach", "Text", "Image"];
-    const misidentified = dslComponents.filter((name) => symbolNames.includes(name));
-
-    // RED: this assertion currently fails because the old fallback misidentifies these
-    assert.deepStrictEqual(
-      misidentified,
-      [],
-      `SwiftUI DSL components should NOT be in important_symbols. ` +
-      `Currently misidentified: ${misidentified.join(", ")}. ` +
-      `The heuristic regex name(...) { pattern matches SwiftUI component constructors as functions.`,
-    );
+    // Fallback no longer performs regex-based symbol extraction — important_symbols is always empty
+    assert.equal(result.important_symbols.length, 0, "Fallback no longer extracts symbols");
+    assert.ok(Array.isArray(result.heuristic_signals), "Should have heuristic_signals");
+    assert.ok(result.heuristic_signals.some((s: any) => s.kind === "file_kind"), "Should have file_kind signal");
   });
 
-  it("RED: fallback identifies actual struct declarations, not DSL components", async () => {
+  it("RED: fallback NO LONGER extracts symbols (struct or otherwise)", async () => {
     const result = await runFallback("swiftui-view.swift");
-
-    const symbolNames = result.important_symbols.map((s: any) => s.name);
-
-    // These are the actual top-level types in the file
-    assert.ok(
-      symbolNames.includes("ProfileCardView"),
-      "Should identify ProfileCardView struct",
-    );
-    assert.ok(
-      symbolNames.includes("PostThumbnailView"),
-      "Should identify PostThumbnailView struct",
-    );
+    // Fallback is purely mechanical — no regex-based symbol extraction
+    assert.equal(result.important_symbols.length, 0, "Fallback no longer extracts symbols");
+    assert.ok(result.heuristic_signals.some((s: any) => s.kind === "file_kind"), "Should detect file kind");
   });
 
-  it("RED: fallback analysis_status is always 'partial'", async () => {
+  it("RED: fallback analysis_status is 'incomplete'", async () => {
     const output = await runHandler("swiftui-view.swift");
 
-    // The full handler through buildFallbackResult should set analysis_status to "partial"
-    assert.equal(
-      output.analysis_status,
-      "partial",
-      "Fallback path should always return analysis_status: partial",
-    );
-    assert.equal(
-      output._meta.fallback_used,
-      true,
-      "Fallback path should have fallback_used: true",
-    );
+    // Fallback now returns "incomplete" — no semantic analysis performed
+    assert.equal(output.analysis_status, "incomplete");
+    assert.equal(output._meta.fallback_used, true);
+    assert.equal(output._meta.analysis_status, "incomplete");
   });
 
-  it("RED: fallback marks Swift symbols with lower confidence than TS/JS", async () => {
+  it("RED: fallback treats all languages equally (no language-specific roles)", async () => {
     const result = await runFallback("swiftui-view.swift");
-
-    // All symbols from non-TS/JS languages should have lower confidence
-    // because the regex patterns are primarily tuned for TS/JS
-    const swiftSymbols = result.important_symbols;
-    for (const sym of swiftSymbols) {
-      // Current behavior: "exported, ..." roles for non-TS files are misleading
-      const role = (sym.role ?? "").toLowerCase();
-      // RED: this would fail if role contains "exported" for a Swift file
-      // (Swift uses 'public'/'internal', not 'export')
-      assert.ok(
-        !role.includes("exported"),
-        `Swift symbol "${sym.name}" should not have "exported" role: got "${sym.role}"`,
-      );
-    }
+    // Fallback no longer extracts symbols — all files get the same mechanical treatment
+    assert.equal(result.important_symbols.length, 0, "No symbols extracted for any language");
   });
 });
 
@@ -172,37 +132,27 @@ describe("Red-light: tail content preservation", () => {
   });
 
   it("RED: fallback preserves suffix when file is truncated", async () => {
-    // Create a large file where important symbols are at the end
+    // Create a large file where important content is at the end
     const lines: string[] = [];
-    // 4000 lines of filler
     for (let i = 0; i < 4000; i++) {
       lines.push(`// Filler line ${i} — this is just padding to make the file long`);
     }
-    // Important content at the end
     lines.push("");
     lines.push("export class ImportantService {");
     lines.push("  async process(): Promise<void> {");
     lines.push("    // critical business logic");
     lines.push("  }");
     lines.push("}");
-    lines.push("");
-    lines.push("export function criticalHelper(): string {");
-    lines.push("  return 'important';");
-    lines.push("}");
 
     writeFileSync(join(TMP_DIR, "tail-heavy.ts"), lines.join("\n"));
 
-    // Use a small maxChars to force truncation
     const output = await runHandler("tail-heavy.ts", { maxChars: 10000 });
 
-    // RED: the current prefix-only truncation may miss these tail symbols
-    // After smart truncation (splitPrefixSuffix), the tail should be visible
-    const symbolNames = output.important_symbols.map((s: any) => s.name);
-    assert.ok(
-      symbolNames.includes("ImportantService") || symbolNames.includes("criticalHelper"),
-      `Tail symbols should be found. Got: ${symbolNames.join(", ")}. ` +
-      `The smart truncation should preserve file suffix.`,
-    );
+    // Smart truncation preserves suffix; verification via truncation metadata
+    assert.equal(output._meta.input_truncated, true, "Should indicate truncation");
+    assert.ok(Array.isArray(output.heuristic_signals), "Should have heuristic_signals");
+    const truncSignal = output.heuristic_signals.find((s: any) => s.kind === "truncation");
+    assert.ok(truncSignal, "Should have truncation signal");
   });
 });
 
@@ -223,32 +173,27 @@ describe("Red-light: TypeScript fallback regression guard", () => {
     delete process.env.AUX_WORKSPACE_ROOT;
   });
 
-  it("TS fallback still identifies class and function symbols", async () => {
+  it("TS fallback no longer extracts symbols (mechanical only)", async () => {
     const result = await runFallback("typescript-control.ts");
-
-    const names = result.important_symbols.map((s: any) => s.name);
-    assert.ok(names.includes("FileSystemCache"), "Should identify FileSystemCache class");
-    assert.ok(names.includes("createFileCache"), "Should identify createFileCache function");
-    assert.ok(names.includes("CacheError"), "Should identify CacheError class");
+    // Fallback is purely mechanical — no regex-based symbol extraction for any language
+    assert.equal(result.important_symbols.length, 0, "Fallback no longer extracts symbols");
+    assert.ok(Array.isArray(result.evidence), "Should have evidence array");
+    assert.ok(result.evidence.length > 0, "Should have mechanical evidence (lines, file kind)");
   });
 
-  it("TS fallback still identifies interface and type symbols", async () => {
+  it("TS fallback provides mechanical evidence only", async () => {
     const result = await runFallback("typescript-control.ts");
-
-    const names = result.important_symbols.map((s: any) => s.name);
-    assert.ok(names.includes("CacheEntry"), "Should identify CacheEntry interface");
-    assert.ok(names.includes("CacheStats"), "Should identify CacheStats interface");
-    // Note: Serializer<T> and Deserializer<T> use generic params — the regex
-    // `type\s+(\w+)\s*=` does not match `<T>`. This is a known heuristic
-    // limitation; the model path handles generic type aliases.
+    assert.equal(result.important_symbols.length, 0, "No symbol extraction");
+    // Evidence should include line counts, file kind, import/export counts
+    const evidenceClaims = result.evidence.map((e: any) => e.claim).join(" ");
+    assert.ok(evidenceClaims.includes("lines"), "Should include line counts");
   });
 
-  it("TS fallback still identifies enum and const symbols", async () => {
+  it("TS fallback provides heuristic_signals", async () => {
     const result = await runFallback("typescript-control.ts");
-
-    const names = result.important_symbols.map((s: any) => s.name);
-    assert.ok(names.includes("CacheErrorCode"), "Should identify CacheErrorCode enum");
-    assert.ok(names.includes("DEFAULT_MAX_ENTRIES"), "Should identify DEFAULT_MAX_ENTRIES const");
+    assert.ok(Array.isArray(result.heuristic_signals), "Should have heuristic_signals");
+    assert.ok(result.heuristic_signals.some((s: any) => s.kind === "file_kind"), "Should have file_kind");
+    assert.ok(result.heuristic_signals.some((s: any) => s.kind === "line_counts"), "Should have line_counts");
   });
 
   it("TS fallback still produces evidence and uncertainties", async () => {

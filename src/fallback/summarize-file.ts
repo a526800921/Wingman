@@ -62,608 +62,31 @@ export interface FallbackSummarizeResult {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-type SymbolKind = FallbackSummarizeResult["important_symbols"][number]["kind"];
-
-interface RawSymbol {
-  name: string;
-  kind: SymbolKind;
-  role: string;
-  line: number;
-}
-
-/**
- * DSL / UI framework component names that the generic `name(...) {` regex
- * may incorrectly match as top-level function declarations.
- *
- * This is NOT a full parser — it's a minimal filter to reduce false positives
- * in SwiftUI, Jetpack Compose, Flutter, React, and similar DSLs.
- */
-const DSL_COMPONENT_BLOCKLIST = new Set([
-  // SwiftUI
-  "VStack", "HStack", "ZStack", "LazyVStack", "LazyHStack",
-  "ScrollView", "List", "Form", "Group", "ForEach",
-  "Button", "Text", "Image", "Label", "Link", "Menu",
-  "TextField", "SecureField", "TextEditor",
-  "Toggle", "Slider", "Stepper", "Picker", "DatePicker",
-  "ColorPicker", "ProgressView",
-  "NavigationView", "NavigationLink", "NavigationStack",
-  "TabView", "TabItem",
-  "Divider", "Spacer",
-  "GeometryReader", "ScrollViewReader",
-  // Jetpack Compose
-  "Column", "Row", "Box", "Card", "LazyColumn", "LazyRow",
-  // Flutter
-  "Container", "Center", "Padding", "SizedBox", "Expanded",
-  // React / JSX (common lowercase built-ins that regex might match)
-  "div", "span", "section", "article", "header", "footer",
-]);
-
-/** Check if a name is a known DSL/UI component that should NOT be treated
- *  as a top-level function declaration. */
-function isDslComponent(name: string): boolean {
-  return DSL_COMPONENT_BLOCKLIST.has(name);
-}
-
 /** Map file extension to a human-readable language name. */
 function langFromExtension(ext: string): string {
   const map: Record<string, string> = {
-    ".ts": "TypeScript",
-    ".tsx": "TypeScript",
-    ".js": "JavaScript",
-    ".jsx": "JavaScript",
-    ".mjs": "JavaScript",
-    ".cjs": "JavaScript",
-    ".py": "Python",
-    ".pyi": "Python",
-    ".rs": "Rust",
-    ".go": "Go",
-    ".java": "Java",
-    ".md": "Markdown",
-    ".mdx": "Markdown",
-    ".json": "JSON",
-    ".yaml": "YAML",
-    ".yml": "YAML",
-    ".toml": "TOML",
-    ".css": "CSS",
-    ".scss": "SCSS",
-    ".less": "LESS",
-    ".html": "HTML",
-    ".htm": "HTML",
-    ".sql": "SQL",
-    ".sh": "Shell",
-    ".bash": "Shell",
-    ".zsh": "Shell",
-    ".c": "C",
-    ".cpp": "C++",
-    ".cc": "C++",
-    ".cxx": "C++",
-    ".h": "C/C++ Header",
-    ".hpp": "C++ Header",
-    ".rb": "Ruby",
-    ".php": "PHP",
-    ".swift": "Swift",
-    ".kt": "Kotlin",
-    ".kts": "Kotlin",
-    ".xml": "XML",
-    ".vue": "Vue",
-    ".svelte": "Svelte",
+    ".ts": "TypeScript", ".tsx": "TypeScript", ".js": "JavaScript",
+    ".jsx": "JavaScript", ".mjs": "JavaScript", ".cjs": "JavaScript",
+    ".py": "Python", ".pyi": "Python", ".rs": "Rust", ".go": "Go",
+    ".java": "Java", ".md": "Markdown", ".mdx": "Markdown",
+    ".json": "JSON", ".yaml": "YAML", ".yml": "YAML", ".toml": "TOML",
+    ".css": "CSS", ".scss": "SCSS", ".less": "LESS",
+    ".html": "HTML", ".htm": "HTML", ".sql": "SQL",
+    ".sh": "Shell", ".bash": "Shell", ".zsh": "Shell",
+    ".c": "C", ".cpp": "C++", ".cc": "C++", ".cxx": "C++",
+    ".h": "C/C++ Header", ".hpp": "C++ Header",
+    ".rb": "Ruby", ".php": "PHP", ".swift": "Swift",
+    ".kt": "Kotlin", ".kts": "Kotlin", ".xml": "XML",
+    ".vue": "Vue", ".svelte": "Svelte",
   };
   return map[ext.toLowerCase()] ?? ext.slice(1).toUpperCase();
 }
 
-/** Compute 1-based line number from a match index in text.
- *  When pos lands on a newline (e.g., from ^ anchor in multiline regex),
- *  the actual match starts on the following line. */
+/** Compute 1-based line number from a match index in text. */
 function lineNumberOf(text: string, pos: number): number {
   const line = text.slice(0, pos).split("\n").length;
   if (pos < text.length && text[pos] === "\n") return line + 1;
   return line;
-}
-
-/** Count parameters in a function parameter string (simple comma split). */
-function countParams(paramStr: string): number {
-  const trimmed = paramStr.trim();
-  if (trimmed === "") return 0;
-  return trimmed.split(",").length;
-}
-
-/**
- * Build a human-readable role string from the matched line context.
- */
-function buildRole(
-  line: string,
-  kind: SymbolKind,
-  name: string,
-): string {
-  const modifiers: string[] = [];
-
-  if (/\bexport\b/.test(line)) modifiers.push("exported");
-  if (/\bdefault\b/.test(line)) modifiers.push("default");
-  if (/\basync\b/.test(line)) modifiers.push("async");
-  if (/\babstract\b/.test(line)) modifiers.push("abstract");
-  if (/\bpub\b/.test(line)) modifiers.push("public");
-
-  switch (kind) {
-    case "function": {
-      // Try to extract parameter count from the matched line
-      const paramMatch = line.match(
-        new RegExp(
-          `\\b${escapeRegex(name)}\\s*\\(([^)]*)\\)`,
-        ),
-      );
-      if (paramMatch !== null) {
-        const paramCount = countParams(paramMatch[1]);
-        const paramLabel =
-          paramCount === 1 ? "1 parameter" : `${paramCount} parameters`;
-        modifiers.push(`function takes ${paramLabel}`);
-      }
-      // else: parameter count unknown — don't fabricate "0 parameters"
-      break;
-    }
-    case "class": {
-      const extendsMatch = line.match(/\bextends\s+(\w+)/);
-      if (extendsMatch !== null) {
-        modifiers.push(`class extends ${extendsMatch[1]}`);
-      } else {
-        modifiers.push("class");
-      }
-      break;
-    }
-    case "struct": {
-      const conformMatch = line.match(/:\s*(\w+)/);
-      if (conformMatch !== null) {
-        modifiers.push(`struct conforms to ${conformMatch[1]}`);
-      } else {
-        modifiers.push("struct");
-      }
-      break;
-    }
-    case "interface": {
-      const extendsMatch = line.match(/\bextends\s+/);
-      modifiers.push(extendsMatch !== null ? "interface with extends" : "interface");
-      break;
-    }
-    case "type":
-      modifiers.push("type alias");
-      break;
-    case "const":
-      modifiers.push("constant");
-      break;
-    case "enum":
-      modifiers.push("enum");
-      break;
-    case "unknown":
-      modifiers.push("symbol");
-      break;
-  }
-
-  return modifiers.join(", ");
-}
-
-/** Escape special regex characters in a string. */
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-// ---------------------------------------------------------------------------
-// Symbol-extraction patterns
-// ---------------------------------------------------------------------------
-
-interface ExtractionPattern {
-  regex: RegExp;
-  kind: SymbolKind;
-  /** Which capture group holds the symbol name. */
-  nameGroup: number;
-}
-
-function buildPatterns(): ExtractionPattern[] {
-  return [
-    // ---------- functions ----------
-    // TypeScript / JavaScript function declarations
-    {
-      regex: /^\s*(export\s+)?(default\s+)?(async\s+)?function\s+(\w+)/gm,
-      kind: "function",
-      nameGroup: 4,
-    },
-    // Rust: pub fn / fn
-    {
-      regex: /^\s*(pub(?:\s*\(\s*crate\s*\))?\s+)?(async\s+)?(unsafe\s+)?fn\s+(\w+)/gm,
-      kind: "function",
-      nameGroup: 4,
-    },
-    // Go: func
-    {
-      regex: /^\s*func\s+(\w+)/gm,
-      kind: "function",
-      nameGroup: 1,
-    },
-    // Python: def
-    {
-      regex: /^\s*def\s+(\w+)/gm,
-      kind: "function",
-      nameGroup: 1,
-    },
-    // Method / function shorthand: name(params) {  (after function/class already
-    // captured, this catches plain method definitions in objects / classes)
-    // NOTE: This is the least-specific pattern and produces the most false
-    // positives (especially for DSL/UI components). Results are filtered
-    // against DSL_COMPONENT_BLOCKLIST.
-    {
-      regex: /^\s*(export\s+)?(async\s+)?(\w+)\s*\([^)]*\)\s*\{/gm,
-      kind: "function",
-      nameGroup: 3,
-    },
-
-    // ---------- classes ----------
-    // TypeScript / JavaScript / Java / Kotlin
-    {
-      regex: /^\s*(export\s+)?(abstract\s+)?class\s+(\w+)/gm,
-      kind: "class",
-      nameGroup: 3,
-    },
-    // Python
-    {
-      regex: /^\s*class\s+(\w+)/gm,
-      kind: "class",
-      nameGroup: 1,
-    },
-
-    // ---------- struct (Swift, Rust) ----------
-    // Swift: struct Name: View { / struct Name: Codable {
-    // Rust: pub struct Name { / struct Name {
-    {
-      regex: /^\s*(pub(?:lic)?\s+)?struct\s+(\w+)/gm,
-      kind: "struct",
-      nameGroup: 2,
-    },
-
-    // ---------- interfaces ----------
-    {
-      regex: /^\s*(export\s+)?interface\s+(\w+)/gm,
-      kind: "interface",
-      nameGroup: 2,
-    },
-
-    // ---------- type aliases ----------
-    {
-      regex: /^\s*(export\s+)?type\s+(\w+)\s*=/gm,
-      kind: "type",
-      nameGroup: 2,
-    },
-
-    // ---------- constants ----------
-    {
-      regex: /^\s*(export\s+)?const\s+(\w+)\s*=/gm,
-      kind: "const",
-      nameGroup: 2,
-    },
-
-    // ---------- enums ----------
-    {
-      regex: /^\s*(export\s+)?enum\s+(\w+)/gm,
-      kind: "enum",
-      nameGroup: 2,
-    },
-    // Rust enum
-    {
-      regex: /^\s*(pub\s+)?enum\s+(\w+)/gm,
-      kind: "enum",
-      nameGroup: 2,
-    },
-  ];
-}
-
-// ---------------------------------------------------------------------------
-// Extraction logic
-// ---------------------------------------------------------------------------
-
-/**
- * Extract symbols from source text using the language-agnostic regex patterns.
- * Returns up to 15 most-significant symbols, de-duplicated by name (first
- * occurrence wins).
- */
-function extractSymbols(text: string): RawSymbol[] {
-  const patterns = buildPatterns();
-  const seen = new Set<string>();
-  const symbols: RawSymbol[] = [];
-
-  for (const pat of patterns) {
-    // Reset lastIndex for regexes with the global flag
-    pat.regex.lastIndex = 0;
-    for (const m of text.matchAll(pat.regex)) {
-      const name = m[pat.nameGroup];
-      if (name === undefined || name === "") continue;
-      // Skip keywords that the regex may accidentally capture
-      if (
-        name === "if" ||
-        name === "for" ||
-        name === "while" ||
-        name === "switch" ||
-        name === "catch" ||
-        name === "with" ||
-        name === "try" ||
-        name === "else" ||
-        name === "return" ||
-        name === "throw" ||
-        name === "new" ||
-        name === "typeof" ||
-        name === "instanceof" ||
-        name === "delete" ||
-        name === "void"
-      ) {
-        continue;
-      }
-      if (seen.has(name)) continue;
-      seen.add(name);
-
-      // Filter DSL/UI component names caught by the generic name(...) { pattern
-      if (pat.kind === "function" && isDslComponent(name)) continue;
-
-      const line = lineNumberOf(text, m.index);
-      const matchLine = text.split("\n")[line - 1] ?? m[0];
-
-      symbols.push({
-        name,
-        kind: pat.kind,
-        role: buildRole(matchLine, pat.kind, name),
-        line,
-      });
-    }
-  }
-
-  // Sort: prioritise exported/public symbols, then by line number.
-  symbols.sort((a, b) => {
-    const aExp = a.role.startsWith("exported") || a.role.startsWith("public");
-    const bExp = b.role.startsWith("exported") || b.role.startsWith("public");
-    if (aExp !== bExp) return aExp ? -1 : 1;
-    return a.line - b.line;
-  });
-
-  return symbols.slice(0, 15);
-}
-
-// ---------------------------------------------------------------------------
-// Evidence extraction
-// ---------------------------------------------------------------------------
-
-interface ExtractedEvidence {
-  claims: FallbackSummarizeResult["evidence"];
-  /** Deduplicated module names from import statements. */
-  importModules: string[];
-  /** Counts of each symbol kind. */
-  kindCounts: Record<string, number>;
-}
-
-function extractEvidence(
-  text: string,
-  symbols: RawSymbol[],
-  ext: string,
-): ExtractedEvidence {
-  const lines = text.split("\n");
-  const totalLines = lines.length;
-  const nonEmptyLines = lines.filter((l) => l.trim() !== "").length;
-
-  // Comment-line detection (language-agnostic)
-  let commentLines = 0;
-  let inBlockComment = false;
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    // Multi-line block comment tracking (/* ... */)
-    if (inBlockComment) {
-      commentLines++;
-      if (trimmed.includes("*/")) inBlockComment = false;
-      continue;
-    }
-
-    if (trimmed.startsWith("/*")) {
-      commentLines++;
-      if (!trimmed.includes("*/")) inBlockComment = true;
-      continue;
-    }
-
-    // Single-line comments
-    if (
-      trimmed.startsWith("//") || // JS/TS/Go/Rust/Java/C/C++/Kotlin/Swift
-      trimmed.startsWith("#") || // Python/Ruby/Shell/YAML/TOML
-      trimmed.startsWith("--") || // SQL/Lua
-      trimmed.startsWith("<!--") || // HTML/Markdown
-      trimmed.startsWith("%") || // Erlang/Prolog
-      trimmed.startsWith(";") // Lisp
-    ) {
-      commentLines++;
-      continue;
-    }
-
-    // Empty line (already checked by startsWith for comment-like chars,
-    // but an empty line could still be a line with only whitespace)
-    if (trimmed === "") {
-      // nonEmptyLines already filters these out — nothing extra to count
-    }
-  }
-
-  const evidence: FallbackSummarizeResult["evidence"] = [];
-
-  // Import modules extraction
-  const importModules = extractImportModules(text, ext);
-  if (importModules.length > 0) {
-    evidence.push({
-      claim: `Imports from ${importModules.length} module(s): ${importModules.slice(0, 10).join(", ")}${importModules.length > 10 ? ", ..." : ""}`,
-      source: "import statement analysis",
-      confidence: "high",
-    });
-  }
-
-  // Import count
-  const importMatches = text.match(/^\s*import\s+/gm);
-  const importCount = importMatches !== null ? importMatches.length : 0;
-  if (importCount > 0) {
-    evidence.push({
-      claim: `Found ${importCount} import statement(s)`,
-      source: "regex: ^\\s*import\\s+",
-      confidence: "high",
-    });
-  }
-
-  // Export count
-  const exportMatches = text.match(/^\s*export\s+/gm);
-  const exportCount = exportMatches !== null ? exportMatches.length : 0;
-  if (exportCount > 0) {
-    evidence.push({
-      claim: `Found ${exportCount} export statement(s)`,
-      source: "regex: ^\\s*export\\s+",
-      confidence: "high",
-    });
-  }
-
-  // Symbol kind counts
-  const kindCounts: Record<string, number> = {};
-  for (const sym of symbols) {
-    kindCounts[sym.kind] = (kindCounts[sym.kind] ?? 0) + 1;
-  }
-  for (const [kind, count] of Object.entries(kindCounts)) {
-    evidence.push({
-      claim: `Found ${count} ${kind} definition(s)`,
-      source: "heuristic regex extraction",
-      confidence: "medium",
-    });
-  }
-
-  // Shebang
-  if (text.startsWith("#!")) {
-    const shebangLine = lines[0];
-    evidence.push({
-      claim: `File has shebang: ${shebangLine}`,
-      source: "line 1 inspection",
-      confidence: "high",
-    });
-  }
-
-  // Strict mode (JS/TS)
-  if (/^["']use strict["'];?$/m.test(text)) {
-    evidence.push({
-      claim: "File uses strict mode",
-      source: "regex: use strict",
-      confidence: "high",
-    });
-  }
-
-  // Package declaration (Java / Kotlin / Go module)
-  const pkgMatch = text.match(/^\s*package\s+(\S+)/m);
-  if (pkgMatch !== null) {
-    evidence.push({
-      claim: `Package declaration: ${pkgMatch[1]}`,
-      source: "regex: ^\\s*package\\s+",
-      confidence: "high",
-    });
-  }
-
-  // Line counts
-  evidence.push({
-    claim: `Total ${totalLines} lines (${nonEmptyLines} non-empty, ${commentLines} comment lines)`,
-    source: "line counting",
-    confidence: "high",
-  });
-
-  return { claims: evidence, importModules, kindCounts };
-}
-
-/**
- * Extract unique module names from import statements.
- * Handles JS/TS (import ... from 'module'), Python (from module import /
- * import module), and Go (import "module").
- */
-function extractImportModules(text: string, ext: string): string[] {
-  const modules = new Set<string>();
-
-  // JS/TS style: import ... from 'module'  or  import 'module'
-  const jsImportRe = /^\s*import\s+(?:.*?\bfrom\s+)?['"]([^'"]+)['"]/gm;
-  for (const m of text.matchAll(jsImportRe)) {
-    const mod = m[1];
-    // Filter out relative imports (start with . or /)
-    if (mod !== undefined && !mod.startsWith(".") && !mod.startsWith("/")) {
-      modules.add(mod);
-    }
-  }
-
-  // Dynamic import: import('module')
-  const dynImportRe = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
-  for (const m of text.matchAll(dynImportRe)) {
-    const mod = m[1];
-    if (mod !== undefined && !mod.startsWith(".") && !mod.startsWith("/")) {
-      modules.add(mod);
-    }
-  }
-
-  // Python style: from module import ...  or  import module
-  const pyFromRe = /^\s*from\s+(\S+)\s+import\s+/gm;
-  for (const m of text.matchAll(pyFromRe)) {
-    const mod = m[1];
-    if (mod !== undefined && !mod.startsWith(".")) {
-      modules.add(mod);
-    }
-  }
-  const pyImportRe = /^\s*import\s+(\S+)/gm;
-  for (const m of text.matchAll(pyImportRe)) {
-    const mod = m[1];
-    if (mod !== undefined && !mod.startsWith(".")) {
-      modules.add(mod);
-    }
-  }
-
-  // Go style: import "module"
-  // Go single imports
-  if ([".go"].includes(ext.toLowerCase())) {
-    const goImportRe = /^\s*"[^"]+"/gm;
-    for (const m of text.matchAll(goImportRe)) {
-      const mod = m[0].replace(/^"|"$/g, "");
-      if (mod !== "" && !mod.startsWith(".") && !mod.startsWith("/")) {
-        modules.add(mod);
-      }
-    }
-  }
-
-  return [...modules].sort();
-}
-
-// ---------------------------------------------------------------------------
-// Summary construction
-// ---------------------------------------------------------------------------
-
-function buildSummary(
-  filename: string,
-  totalLines: number,
-  lang: string,
-  symbolKindCounts: Record<string, number>,
-  importModules: string[],
-  topSymbols: RawSymbol[],
-): string {
-  const funcCount = symbolKindCounts["function"] ?? 0;
-  const classCount = symbolKindCounts["class"] ?? 0;
-  const moduleCount = importModules.length;
-
-  const parts: string[] = [];
-  parts.push(`${filename} (${totalLines} lines, ${lang}).`);
-
-  const contentParts: string[] = [];
-  if (funcCount > 0) contentParts.push(`${funcCount} functions`);
-  if (classCount > 0) contentParts.push(`${classCount} classes`);
-  if (contentParts.length > 0) {
-    parts.push(`Contains ${contentParts.join(", ")}.`);
-  }
-
-  if (moduleCount > 0) {
-    parts.push(
-      `Imports from ${moduleCount} module(s): ${importModules.slice(0, 5).join(", ")}${moduleCount > 5 ? ", ..." : ""}.`,
-    );
-  }
-
-  if (topSymbols.length > 0) {
-    const names = topSymbols.slice(0, 5).map((s) => s.name);
-    parts.push(`Top-level symbols: ${names.join(", ")}.`);
-  }
-
-  return parts.join(" ");
 }
 
 // ---------------------------------------------------------------------------
@@ -795,53 +218,37 @@ export function summarizeFileFallback(
   workspaceRoot: string,
   relativePath: string,
   maxChars?: number,
+  fileContent?: string,
 ): FallbackSummarizeResult {
   const limitChars = maxChars ?? DEFAULT_MAX_READ_CHARS;
 
-  // 1. Resolve the safe path
-  let resolvedPath: string;
-  try {
-    resolvedPath = resolveSafePath(workspaceRoot, relativePath);
-  } catch (err: unknown) {
-    const message =
-      err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `Path resolution failed for "${relativePath}": ${message}`,
-    );
-  }
-
-  logger.debug("summarizeFileFallback: resolved path", {
-    resolvedPath,
-    limitChars,
-  });
-
-  // 2. Read the file
+  // 1. Read file content (use provided content if available, otherwise read from disk)
   let rawText: string;
-  try {
-    rawText = fs.readFileSync(resolvedPath, { encoding: "utf-8" });
-  } catch (err: unknown) {
-    const nodeErr = err as NodeJS.ErrnoException;
-    if (nodeErr.code === "ENOENT") {
-      throw new Error(
-        `File not found: "${relativePath}" (resolved to "${resolvedPath}")`,
-      );
+  if (fileContent !== undefined) {
+    rawText = fileContent;
+  } else {
+    let resolvedPath: string;
+    try {
+      resolvedPath = resolveSafePath(workspaceRoot, relativePath);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Path resolution failed for "${relativePath}": ${message}`);
     }
-    if (nodeErr.code === "EACCES" || nodeErr.code === "EPERM") {
-      throw new Error(
-        `Permission denied reading file: "${relativePath}"`,
-      );
+
+    logger.debug("summarizeFileFallback: resolved path", { resolvedPath, limitChars });
+
+    try {
+      rawText = fs.readFileSync(resolvedPath, { encoding: "utf-8" });
+    } catch (err: unknown) {
+      const nodeErr = err as NodeJS.ErrnoException;
+      if (nodeErr.code === "ENOENT") throw new Error(`File not found: "${relativePath}"`);
+      if (nodeErr.code === "EACCES" || nodeErr.code === "EPERM") throw new Error(`Permission denied reading file: "${relativePath}"`);
+      if (nodeErr.code === "EISDIR") throw new Error(`Path is a directory, not a file: "${relativePath}"`);
+      throw new Error(`Failed to read file "${relativePath}": ${nodeErr.message}`);
     }
-    if (nodeErr.code === "EISDIR") {
-      throw new Error(
-        `Path is a directory, not a file: "${relativePath}"`,
-      );
-    }
-    throw new Error(
-      `Failed to read file "${relativePath}": ${nodeErr.message}`,
-    );
   }
 
-  // Truncate to maxChars if needed, preserving both prefix and suffix
+  // 2. Smart truncation (preserve prefix + suffix)
   const truncated = rawText.length > limitChars;
   let text: string;
   let omittedChars = 0;
@@ -850,9 +257,6 @@ export function summarizeFileFallback(
     const split = splitPrefixSuffix(rawText, limitChars);
     text = joinPrefixSuffix(split.prefix, split.suffix, split.omittedChars);
     omittedChars = split.omittedChars;
-    logger.info(
-      `summarizeFileFallback: smart truncation — ${split.prefix.length} prefix + ${split.suffix.length} suffix, ${omittedChars} chars omitted`,
-    );
   } else {
     text = rawText;
   }
@@ -861,184 +265,87 @@ export function summarizeFileFallback(
   const ext = path.extname(relativePath).toLowerCase();
   const lang = langFromExtension(ext);
   const fileKind = detectFileKind(relativePath);
+  const filename = path.basename(relativePath);
 
-  // Detect whether regex patterns have high confidence for this language
-  const tsJsExts = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
-  const isTsJs = tsJsExts.has(ext);
+  // 4. Mechanical counts (no semantic analysis)
+  const lines = text.split("\n");
+  const totalLines = lines.length;
+  const nonEmptyLines = lines.filter(l => l.trim() !== "").length;
 
-  // 4. Extract structured information (symbols, sections, test data based on kind)
-  let symbols = extractSymbols(text);
+  // Comment line count
+  let commentLines = 0;
+  let inBlockComment = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (inBlockComment) { commentLines++; if (trimmed.includes("*/")) inBlockComment = false; continue; }
+    if (trimmed.startsWith("/*")) { commentLines++; if (!trimmed.includes("*/")) inBlockComment = true; continue; }
+    if (trimmed.startsWith("//") || trimmed.startsWith("#") || trimmed.startsWith("--") ||
+        trimmed.startsWith("<!--") || trimmed.startsWith("%") || trimmed.startsWith(";")) {
+      commentLines++; continue;
+    }
+  }
+
+  // Import/export counts (numbers only, no module names)
+  const importCount = (text.match(/^\s*import\s+/gm) || []).length;
+  const exportCount = (text.match(/^\s*export\s+/gm) || []).length;
+
+  // 5. File-kind-specific extraction (headings for markdown, test names for tests)
   let importantSections: FallbackSummarizeResult["important_sections"];
   let testCases: FallbackSummarizeResult["test_cases"];
   let coveredBehaviors: FallbackSummarizeResult["covered_behaviors"];
 
-  // For markdown/text: extract sections, skip symbol extraction
   if (fileKind === "markdown" || fileKind === "text") {
     importantSections = extractSections(text);
-    symbols = []; // don't put headings in important_symbols
   }
-
-  // For test files: filter framework symbols, extract test data
   if (fileKind === "test") {
-    symbols = symbols.filter((s) => !TEST_FRAMEWORK_SYMBOLS.has(s.name));
     testCases = extractTestCases(text);
     coveredBehaviors = extractCoveredBehaviors(text);
   }
 
-  const { claims: evidence, importModules, kindCounts } = extractEvidence(
-    text,
-    symbols,
-    ext,
-  );
+  // 6. Build summary (mechanical facts only)
+  const summaryParts = [`${filename} (${totalLines} lines, ${lang}). File kind: ${fileKind}.`];
+  if (importCount > 0) summaryParts.push(`${importCount} import statement(s).`);
+  if (exportCount > 0) summaryParts.push(`${exportCount} export statement(s).`);
+  const summary = summaryParts.join(" ");
 
-  // 5. Build the summary string
-  const filename = path.basename(relativePath);
-  const totalLines = text.split("\n").length;
-  const summary = buildSummary(
-    filename,
-    totalLines,
-    lang,
-    kindCounts,
-    importModules,
-    symbols,
-  );
+  // 7. important_symbols: always empty (no regex-based symbol extraction)
+  const important_symbols: FallbackSummarizeResult["important_symbols"] = [];
 
-  // 6. Build important_symbols (already limited to 15 by extractSymbols)
-  const important_symbols: FallbackSummarizeResult["important_symbols"] =
-    symbols.map((s) => ({
-      name: s.name,
-      kind: s.kind,
-      role: s.role,
-      location: `line ${s.line}`,
-    }));
+  // 8. Evidence — deterministic mechanical signals only
+  const evidence: FallbackSummarizeResult["evidence"] = [
+    { claim: `Total ${totalLines} lines (${nonEmptyLines} non-empty, ${commentLines} comment lines)`, source: "line counting", confidence: "high" },
+    { claim: `File kind detected: ${fileKind}`, source: "extension and path-based detection", confidence: fileKind === "unknown" ? "low" : "high" },
+  ];
+  if (importCount > 0) evidence.push({ claim: `Found ${importCount} import statement(s)`, source: "regex: ^\\s*import\\s+", confidence: "high" });
+  if (exportCount > 0) evidence.push({ claim: `Found ${exportCount} export statement(s)`, source: "regex: ^\\s*export\\s+", confidence: "high" });
+  if (text.startsWith("#!")) evidence.push({ claim: `File has shebang: ${lines[0]}`, source: "line 1 inspection", confidence: "high" });
+  if (/^["']use strict["'];?$/m.test(text)) evidence.push({ claim: "File uses strict mode", source: "regex: use strict", confidence: "high" });
+  if (truncated) evidence.push({ claim: `File truncated — ${omittedChars} chars omitted, ${text.length} chars analyzed`, source: "smart truncation (prefix + suffix)", confidence: "high" });
 
-  // 7. Build evidence array
-  const allEvidence: FallbackSummarizeResult["evidence"] = [...evidence];
-  allEvidence.push({
-    claim: `File kind detected: ${fileKind}`,
-    source: "extension and path-based detection",
-    confidence: fileKind === "unknown" ? "low" : "high",
-  });
-  if (truncated) {
-    allEvidence.push({
-      claim: `File was truncated — ${omittedChars} chars omitted, ${text.length} chars analyzed (${limitChars} budget)`,
-      source: "smart truncation (prefix + suffix)",
-      confidence: "high",
-    });
-  }
+  // 9. heuristic_signals — mechanical only, no semantic deduction
+  const heuristicSignals: HeuristicSignal[] = [
+    { kind: "line_counts", evidence: `${totalLines} total, ${nonEmptyLines} non-empty`, confidence: "medium" },
+    { kind: "file_kind", evidence: `Detected as ${fileKind} (language: ${lang})`, confidence: fileKind === "unknown" ? "low" : "medium" },
+  ];
+  if (truncated) heuristicSignals.push({ kind: "truncation", evidence: `${omittedChars} chars omitted beyond budget`, confidence: "medium" });
 
-  // 8. Build heuristic_signals — structural signals, NOT semantic analysis
-  const heuristicSignals: HeuristicSignal[] = [];
-
-  // Import modules as heuristic signals
-  if (importModules.length > 0) {
-    heuristicSignals.push({
-      kind: "imports",
-      evidence: `Imports from ${importModules.length} module(s): ${importModules.slice(0, 10).join(", ")}${importModules.length > 10 ? ", ..." : ""}`,
-      confidence: "medium",
-    });
-  }
-
-  // Line count signals
-  const nonEmptyLines = text.split("\n").filter((l) => l.trim() !== "").length;
-  heuristicSignals.push({
-    kind: "line_counts",
-    evidence: `${totalLines} total lines, ${nonEmptyLines} non-empty`,
-    confidence: "medium",
-  });
-
-  // Symbol kind distribution
-  if (Object.keys(kindCounts).length > 0) {
-    heuristicSignals.push({
-      kind: "possible_declarations",
-      evidence: Object.entries(kindCounts)
-        .map(([k, c]) => `${c} ${k}(s)`)
-        .join(", "),
-      confidence: isTsJs ? "medium" : "low",
-    });
-  }
-
-  // File kind signal
-  heuristicSignals.push({
-    kind: "file_kind",
-    evidence: `Detected as ${fileKind} (language: ${lang})`,
-    confidence: fileKind === "unknown" ? "low" : "medium",
-  });
-
-  // Truncation signal
-  if (truncated) {
-    heuristicSignals.push({
-      kind: "truncation",
-      evidence: `${omittedChars} chars omitted; tail content beyond char ${text.indexOf("\n[... ") >= 0 ? "marker" : "limit"} not scanned`,
-      confidence: "medium",
-    });
-  }
-
-  // 9. Build uncertainties — explicitly state fallback limitations
+  // 10. Uncertainties — explicit: no semantic analysis performed
   const uncertainties: FallbackSummarizeResult["uncertainties"] = [
     {
-      topic: "Summary accuracy",
-      reason:
-        "Heuristic-based structural scan — function bodies, control flow, " +
-        "error handling, side effects, and algorithmic complexity are NOT analyzed. " +
-        "This is a regex-based scan for possible declarations, not a semantic summary.",
-      suggested_verification:
-        "Use the primary model-based summarizer for semantic analysis, " +
-        "or review the file manually.",
-    },
-    {
-      topic: "Behavior and logic",
-      reason:
-        "Runtime behavior, async patterns, error propagation, and business " +
-        "logic are not evaluated by the fallback structural scanner.",
-      suggested_verification:
-        "Run tests, review critical paths, or request a full model analysis.",
-    },
-    {
-      topic: "Symbol visibility",
-      reason:
-        "Exported vs internal symbols may not be distinguished correctly. " +
-        "The regex-based extraction does not resolve re-exports " +
-        "(`export { X } from ...`), default exports, or namespace re-exports.",
-      suggested_verification:
-        "Check the module's public API surface manually or via the primary summarizer.",
+      topic: "No semantic analysis performed",
+      reason: "The heuristic fallback performs ONLY mechanical counting (lines, file type, import/export counts). Functions, classes, interfaces, control flow, error handling, side effects, and algorithmic complexity are NOT analyzed. The calling model should READ the file directly for semantic understanding.",
+      suggested_verification: "Use the model-based summarizer, or read the file directly with your Read tool.",
     },
   ];
-
-  // Non-TS/JS: explicit cross-language uncertainty
-  if (!isTsJs) {
-    uncertainties.push({
-      topic: "Cross-language accuracy (fallback)",
-      reason:
-        `This file (${lang}) is not TypeScript/JavaScript. ` +
-        "The regex-based fallback patterns are tuned primarily for TS/JS " +
-        "and may miss or mis-classify symbols. Symbol extraction is " +
-        "low-confidence for this language.",
-      suggested_verification:
-        "For accurate analysis of non-TS/JS files, use the primary " +
-        "model-based summarizer which understands language-specific semantics.",
-    });
-  }
-
-  // Truncation uncertainty
   if (truncated) {
     uncertainties.push({
-      topic: "Truncated content (fallback)",
-      reason:
-        `File truncated: ${omittedChars} characters omitted. ` +
-        "Smart truncation preserves both prefix and suffix, but the " +
-        "middle section was not scanned for symbols or declarations.",
-      suggested_verification:
-        "Increase maxChars or use the model-based summarizer for complete analysis.",
+      topic: "Truncated content",
+      reason: `File truncated: ${omittedChars} characters omitted. Smart truncation preserves both prefix and suffix, but the middle section was not scanned.`,
+      suggested_verification: "Increase maxChars or use the model-based summarizer for complete analysis.",
     });
   }
 
-  logger.debug("summarizeFileFallback: result", {
-    filename,
-    symbolCount: important_symbols.length,
-    evidenceCount: allEvidence.length,
-    uncertaintyCount: uncertainties.length,
-  });
+  logger.debug("summarizeFileFallback: result", { filename, fileKind, totalLines });
 
   return {
     summary,
@@ -1047,7 +354,7 @@ export function summarizeFileFallback(
     ...(importantSections ? { important_sections: importantSections } : {}),
     ...(testCases ? { test_cases: testCases } : {}),
     ...(coveredBehaviors ? { covered_behaviors: coveredBehaviors } : {}),
-    evidence: allEvidence,
+    evidence,
     uncertainties,
     heuristic_signals: heuristicSignals,
     must_verify_in_source: true,

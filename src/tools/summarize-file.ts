@@ -26,11 +26,10 @@ import {
   summarizeFileFallback,
 } from "../fallback/summarize-file.js";
 import { splitPrefixSuffix, joinPrefixSuffix } from "../model-runtime/truncation.js";
-import { buildDiagnosticMeta } from "../model-runtime/diagnostics.js";
 import { modelPathStatus, fallbackStatus } from "../model-runtime/status.js";
 import { createTraceMeta } from "../logger.js";
 import { hasApiKey, isModelAvailable, type ConfigLike } from "../shared/config-guard.js";
-import { createTraceContext, withDuration } from "../shared/handler-boilerplate.js";
+import { createTraceContext, withDuration, assembleBaseMeta } from "../shared/handler-boilerplate.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -163,6 +162,7 @@ export async function handleSummarizeFile(
     result = buildFallbackResult(
       config.workspaceRoot,
       validatedInput.path,
+      fileContent,
       maxChars,
       inputTruncated,
       provider,
@@ -208,33 +208,51 @@ async function tryModelSummarization(
       log.warn(
         "summarize_file: model returned non-JSON, falling back to heuristic",
       );
-      return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated, provider, traceMeta);
+      return buildFallbackResult(config.workspaceRoot, userPath, fileContent, maxChars, inputTruncated, provider, traceMeta);
     }
 
-    // Step 5f: attach _meta + force is_authoritative (model prompt does not include _meta)
+    // Step 5f: evidence verification + attach _meta
+    let evidenceRejectedCount: number | undefined;
+    const modelSymbols = (parsed as Record<string, unknown>).important_symbols;
+    if (Array.isArray(modelSymbols)) {
+      const unverified = modelSymbols.filter(
+        (s: unknown) => typeof (s as Record<string, unknown>).name === "string" &&
+          !fileContent.includes((s as Record<string, unknown>).name as string)
+      );
+      if (unverified.length > 0) {
+        evidenceRejectedCount = unverified.length;
+        log.warn("summarize_file: evidence verification — symbol names not found in source", {
+          unverifiedNames: unverified.map((s: unknown) => (s as Record<string, unknown>).name),
+          totalSymbols: modelSymbols.length,
+        });
+      }
+    }
+
     const outputWithMeta = {
       ...(parsed as Record<string, unknown>),
       analysis_status: modelPathStatus(true, false, inputTruncated),
       is_authoritative: false,
-      _meta: {
+      _meta: assembleBaseMeta({
         provider,
-        model: config.modelName,
-        tokens_used: usage?.total_tokens ?? 0,
-        prompt_tokens: usage?.prompt_tokens,
-        completion_tokens: usage?.completion_tokens,
-        input_truncated: inputTruncated,
-        fallback_used: false,
-        analysis_status: modelPathStatus(true, false, inputTruncated),
-        feedback_recommended: inputTruncated ? true as const : undefined,
-        feedback_reason: inputTruncated ? "partial_analysis" as const : undefined,
-        ...traceMeta,
-        ...buildDiagnosticMeta({
-          analysisMode: "model_analysis",
-          modelUsed: true,
-          modelAttempted: true,
-          limitations: inputTruncated ? ["File was truncated, some content may not have been analyzed"] : undefined,
-        }),
-      },
+        modelName: config.modelName,
+        totalTokens: usage?.total_tokens ?? 0,
+        promptTokens: usage?.prompt_tokens,
+        completionTokens: usage?.completion_tokens,
+        inputTruncated,
+        fallbackUsed: false,
+        analysisMode: "model_analysis",
+        modelUsed: true,
+        modelAttempted: true,
+        limitations: inputTruncated ? ["File was truncated, some content may not have been analyzed"] : undefined,
+        traceMeta,
+        overrides: {
+          analysis_status: modelPathStatus(true, false, inputTruncated),
+          ...(evidenceRejectedCount !== undefined ? {
+            feedback_recommended: evidenceRejectedCount > 0 || inputTruncated,
+            feedback_reason: evidenceRejectedCount > 0 ? "evidence_rejected" as const : (inputTruncated ? "partial_analysis" as const : undefined),
+          } : {}),
+        },
+      }),
     };
 
     // Step 5g: validate output schema (after _meta is attached)
@@ -244,7 +262,7 @@ async function tryModelSummarization(
         "summarize_file: model output failed schema validation, falling back to heuristic",
         { error: outputValidation.error },
       );
-      return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated, provider, traceMeta);
+      return buildFallbackResult(config.workspaceRoot, userPath, fileContent, maxChars, inputTruncated, provider, traceMeta);
     }
 
     log.info("summarize_file: model summarization succeeded", {
@@ -267,7 +285,7 @@ async function tryModelSummarization(
       { error: message },
     );
 
-    return buildFallbackResult(config.workspaceRoot, userPath, maxChars, inputTruncated, provider, traceMeta);
+    return buildFallbackResult(config.workspaceRoot, userPath, fileContent, maxChars, inputTruncated, provider, traceMeta);
   }
 }
 
@@ -284,6 +302,7 @@ async function tryModelSummarization(
 function buildFallbackResult(
   workspaceRoot: string,
   relativePath: string,
+  fileContent: string,
   maxChars: number,
   inputTruncated: boolean,
   provider: string,
@@ -295,7 +314,7 @@ function buildFallbackResult(
   let fallbackData;
 
   try {
-    fallbackData = summarizeFileFallback(workspaceRoot, relativePath, maxChars);
+    fallbackData = summarizeFileFallback(workspaceRoot, relativePath, maxChars, fileContent);
   } catch (err: unknown) {
     // summarizeFileFallback itself failed — this is unexpected, but we
     // produce a minimal valid result rather than throwing.
@@ -317,37 +336,30 @@ function buildFallbackResult(
       must_verify_in_source: true,
       is_authoritative: false,
       analysis_status: fallbackStatus("model_not_configured", false),
-      _meta: {
-        provider,
-        model: "heuristic",
-        tokens_used: 0,
-        input_truncated: inputTruncated,
-        fallback_used: true,
-        feedback_recommended: true as const,
-        feedback_reason: "fallback_used" as const,
-        analysis_status: fallbackStatus("model_not_configured", false),
-        ...traceMeta,
-        ...buildDiagnosticMeta({
+      _meta: assembleBaseMeta({
+          provider,
+          modelName: "heuristic",
+          totalTokens: 0,
+          promptTokens: undefined,
+          completionTokens: undefined,
+          inputTruncated,
+          fallbackUsed: true,
           analysisMode: "heuristic_fallback",
           modelUsed: false,
           modelAttempted: false,
           modelSkipReason: "model_not_configured",
-          limitations: ["Heuristic-only analysis, symbols may be incomplete or inaccurate"],
+          limitations: ["Deterministic mechanical scan failed — no analysis performed. Read the file directly."],
+          traceMeta,
+          overrides: { analysis_status: fallbackStatus("model_not_configured", false) },
         }),
-      },
     };
   }
 
   return {
     summary: fallbackData.summary,
-    analysis_status: fallbackStatus("model_not_configured", true),
+    analysis_status: fallbackStatus("model_not_configured", false),
     file_kind: fallbackData.file_kind,
-    important_symbols: fallbackData.important_symbols.map((s) => ({
-      name: s.name,
-      kind: s.kind,
-      role: s.role,
-      location: s.location,
-    })),
+    important_symbols: fallbackData.important_symbols,
     important_sections: fallbackData.important_sections,
     test_cases: fallbackData.test_cases,
     covered_behaviors: fallbackData.covered_behaviors,
@@ -356,24 +368,22 @@ function buildFallbackResult(
     uncertainties: fallbackData.uncertainties,
     must_verify_in_source: fallbackData.must_verify_in_source,
     is_authoritative: fallbackData.is_authoritative,
-    _meta: {
+    _meta: assembleBaseMeta({
       provider,
-      model: "heuristic",
-      tokens_used: 0,
-      input_truncated: inputTruncated,
-      fallback_used: true,
-      feedback_recommended: true as const,
-      feedback_reason: "fallback_used" as const,
-      analysis_status: fallbackStatus("model_not_configured", true),
-      ...traceMeta,
-      ...buildDiagnosticMeta({
-        analysisMode: "heuristic_fallback",
-        modelUsed: false,
-        modelAttempted: false,
-        modelSkipReason: "model_not_configured",
-        limitations: ["Heuristic-only analysis, symbols may be incomplete or inaccurate"],
-      }),
-    },
+      modelName: "heuristic",
+      totalTokens: 0,
+      promptTokens: undefined,
+      completionTokens: undefined,
+      inputTruncated,
+      fallbackUsed: true,
+      analysisMode: "heuristic_fallback",
+      modelUsed: false,
+      modelAttempted: false,
+      modelSkipReason: "model_not_configured",
+      limitations: ["Deterministic mechanical scan only — no semantic analysis performed. Use model-based summarizer or read the file directly."],
+      traceMeta,
+      overrides: { analysis_status: fallbackStatus("model_not_configured", false) },
+    }),
   };
   } // handleImpl
 }

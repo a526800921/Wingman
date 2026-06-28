@@ -365,7 +365,7 @@ describe("summarize_file handler: error paths and edge cases", () => {
       "Should handle directory path gracefully");
   });
 
-  it("returns partial analysis_status for fallback results", async () => {
+  it("returns incomplete analysis_status for fallback results", async () => {
     const { handleSummarizeFile } = await import("../src/tools/summarize-file.js");
     const result = await handleSummarizeFile(
       { path: "sample.ts" },
@@ -373,9 +373,10 @@ describe("summarize_file handler: error paths and edge cases", () => {
     );
     assert.equal(result.isError, false);
     const json = JSON.parse(result.content[0].text as string);
-    assert.equal(json.analysis_status, "partial", "Fallback should have analysis_status: partial");
+    assert.equal(json.analysis_status, "incomplete", "Fallback should have analysis_status: incomplete (no semantic analysis)");
     assert.equal(json._meta.fallback_used, true);
     assert.ok(json._meta.model_attempted === false || json._meta.model_skip_reason);
+    assert.equal(json.important_symbols.length, 0, "Fallback no longer extracts symbols");
   });
 
   it("includes heuristic_signals in fallback output", async () => {
@@ -414,7 +415,7 @@ describe("summarize_file handler: error paths and edge cases", () => {
     const meta = json._meta;
     assert.equal(meta.model, "heuristic");
     assert.equal(meta.fallback_used, true);
-    assert.equal(meta.analysis_status, "partial");
+    assert.equal(meta.analysis_status, "incomplete");
     assert.equal(meta.model_attempted, false);
     assert.ok(meta.model_skip_reason);
     assert.equal(typeof meta.input_truncated, "boolean");
