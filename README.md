@@ -35,6 +35,7 @@ Wingman 采用模型优先架构：
 | `aux_compress_command_output` | 从命令输出提取失败点和 evidence | test/build/lint/compiler/stack trace 等任意命令输出 | 自动修复、权威根因判断 |
 | `aux_review_diff` | 对小型 unified diff 提出有证据的风险假设 | 小 diff、提交前快速初筛 | 最终 code review、安全审计、合并决策 |
 | `aux_review_diff_by_file` | 显式按文件/hunk 审查大型 diff | 多文件大 diff、PR diff | 跨仓库影响分析、完整源码语义 |
+| `aux_report_tool_feedback` | 收集调用方对工具输出质量的反馈 | 质量问题报告、字段矛盾、hallucination 报告 | 自动修复、替代人工校验 |
 
 ### 工具边界
 
@@ -100,6 +101,34 @@ MCP request
 - Chat client 强制执行 HTTPS（可显式允许本地 loopback HTTP）、SSRF 防护、超时与重试；配置 `AUX_MODEL_ALLOWED_HOSTS` 后还会执行 host allowlist。
 - Prompt 使用内容分隔、focus 数据隔离、无状态调用、JSON-only 和 schema 校验降低注入风险。
 - 日志写入 stderr 和可选文件，不占用 MCP stdio 的 stdout。
+
+### 质量反馈
+
+Wingman 提供 `aux_report_tool_feedback` 工具，供调用方在发现输出质量问题时主动报告。报告内容写入结构化日志文件，支持后续聚合分析。
+
+**何时主动反馈：**
+
+- 输出字段自相矛盾（如 `first_failure` 指向文件 A，但 `findings` 中对应分析指向文件 B）
+- finding 缺少可回查 evidence，无法验证其正确性
+- 模型产生 hallucination（结论与原文明显不符）
+- fallback 结果过度确定（如将 heuristic signals 表述为确信判断）
+- schema 字段语义误导（如实为 partial 的分析被误标为 complete）
+- summary 低信号，未能有效压缩关键信息
+
+**反馈工具用法：**
+
+调用 `aux_report_tool_feedback`，传入 `tool_name`、`trace_id`、`issue_category`、`severity`、`summary`、`confidence`，可选 `evidence`、`expected_behavior`、`actual_behavior`。工具返回 `recorded`、`feedback_id` 和 `log_file`。
+
+**反馈日志：**
+
+- 默认写入当前工作目录下的 `.aux-feedback.jsonl`（JSON Lines 格式，每行一个 JSON 对象）
+- 通过 `AUX_FEEDBACK_LOG_FILE` 环境变量自定义路径，设为 `off` 则禁用
+- 反馈不包含完整源码、完整 diff 或敏感凭据。超长字段和疑似 token 会在写入前被脱敏
+- 反馈写入失败不影响原 MCP 工具调用
+
+**聚合分析：**
+
+使用 `npx tsx scripts/summarize-feedback.ts` 读取反馈 JSONL，输出按工具和类别统计的 Markdown 汇总报告至 `docs/feedback/`。
 
 ## 安装
 
@@ -199,6 +228,7 @@ AUX_LOG_FILE=/path/to/Wingman/.aux-model.log
 | `AUX_ALLOW_INSECURE_LOCAL_HTTP` | 否 | `false` | 仅允许 loopback 的本地 HTTP |
 | `AUX_LOG_LEVEL` | 否 | `info` | `debug/info/warn/error` |
 | `AUX_LOG_FILE` | 否 | `.aux-model.log` | 设置为 `off` 禁用文件日志 |
+| `AUX_FEEDBACK_LOG_FILE` | 否 | `.aux-feedback.jsonl` | 反馈日志路径，设置为 `off` 禁用 |
 
 \* 未配置 API key 时进入 heuristic fallback。该模式可用于降级和结构信号提取，但不等同于完整模型分析。
 
@@ -267,7 +297,11 @@ src/
 ├── diagnostics/             少量确定性 diagnostic adapter
 ├── chunking/                diff/command-output 结构分块与聚合
 ├── fallback/                降级结构与 heuristic signals
-└── tools/                   五个 MCP handler
+└── tools/                   六个 MCP handler
+
+scripts/
+├── replay-round4.ts         脱敏回放聚合与分析
+└── summarize-feedback.ts    反馈日志聚合分析脚本
 
 test/
 ├── fixtures/                匿名化真实输入与 expectations

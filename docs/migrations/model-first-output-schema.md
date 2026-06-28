@@ -96,3 +96,16 @@ for (const signal of result.heuristic_signals ?? []) {
 - 模型成功、截断、部分失败和完全失败状态分别有测试；
 - `src/schema.ts` 与 `src/index.ts` 字段一致；
 - README 和 tool description 不暗示 heuristic 等同完整分析。
+
+## 2026-06-28: 反馈循环支持
+
+新增以下能力，用于让调用方报告 Wingman 工具输出的质量问题：
+
+- 所有 5 个工具的 `_meta` 新增 `trace_id`（8 位十六进制字符串）和 `tool_name`（工具标识字符串）。trace_id 在单次工具调用生命周期内保持不变，用于关联反馈与原始调用。
+- 新增 `aux_report_tool_feedback` 工具，调用方可主动报告质量缺陷。接受 `tool_name`、`trace_id`、`issue_category`、`severity`、`summary`、`confidence` 等参数。反馈写入 `.aux-feedback.jsonl`（JSON Lines 格式）。
+- 新增环境变量 `AUX_FEEDBACK_LOG_FILE`，控制反馈日志路径（默认 `.aux-feedback.jsonl`，设为 `off` 禁用）。
+- 新增聚合脚本 `scripts/summarize-feedback.ts`，读取反馈 JSONL 生成 Markdown 汇总报告（使用方式：`npx tsx scripts/summarize-feedback.ts`）。
+
+消费者注意：
+- 调用方应检查 `_meta.trace_id` 用于关联反馈与具体调用。
+- 反馈工具不返回业务结果，仅写入日志；调用方不应依赖其返回值进行业务逻辑判断。
