@@ -217,8 +217,10 @@ async function tryModelSummarization(
     const parsedObj = parsed as Record<string, unknown>;
 
     // Normalize known camelCase → snake_case field names
+    // (models vary in style: pure camelCase "MustVerifyInSource", mixed "must_verifyInSource")
     const CAMEL_CASE_MAP: Record<string, string> = {
       mustVerifyInSource: "must_verify_in_source",
+      must_verifyInSource: "must_verify_in_source",
       isAuthoritative: "is_authoritative",
       importantSymbols: "important_symbols",
       fileKind: "file_kind",
