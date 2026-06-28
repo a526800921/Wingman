@@ -13,6 +13,7 @@
 import { lookup } from "node:dns/promises";
 import { URL } from "node:url";
 import { logger } from "./logger.js";
+import { recordToolUsage } from "./tool-stats.js";
 import type { AppConfig } from "./config.js";
 
 // ---------------------------------------------------------------------------
@@ -676,6 +677,11 @@ export class ChatClient {
           }
         : undefined,
     });
+
+    // 记录 token usage 到统计模块
+    if (usage) {
+      recordToolUsage(usage);
+    }
 
     return { text: message.content, usage };
   }

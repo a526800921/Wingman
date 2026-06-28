@@ -4,6 +4,7 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 
@@ -20,7 +21,7 @@ function resolveLogFilePath(): string | null {
   if (envPath === "" || envPath === "off" || envPath === "false") return null;
   const filePath = envPath
     ? resolve(envPath)
-    : resolve(process.cwd(), ".aux-model.log");
+    : resolve(homedir(), ".wingman", "wingman.log");
   try {
     const dir = dirname(filePath);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -140,6 +141,11 @@ export function logDuration(
 /** 日志文件路径（null 表示文件日志已禁用） */
 export function getLogFilePath(): string | null {
   return getLogFile();
+}
+
+/** 重置日志文件路径缓存，仅测试使用。 */
+export function resetLogFileCache(): void {
+  LOG_FILE = undefined;
 }
 
 // ---------------------------------------------------------------------------

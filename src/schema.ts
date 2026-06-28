@@ -567,10 +567,35 @@ export const ToolFeedbackOutputSchema = z.strictObject({
 export type ToolFeedbackOutput = z.infer<typeof ToolFeedbackOutputSchema>;
 
 // ---------------------------------------------------------------------------
+// aux_tool_stats 专用类型
+// ---------------------------------------------------------------------------
+
+export const ToolStatsItemSchema = z.strictObject({
+  tool_name: z.string(),
+  calls: z.number().int().nonnegative(),
+  input_tokens: z.number().int().nonnegative(),
+  output_tokens: z.number().int().nonnegative(),
+  total_tokens: z.number().int().nonnegative(),
+});
+export type ToolStatsItem = z.infer<typeof ToolStatsItemSchema>;
+
+export const ToolStatsInputSchema = z.strictObject({});
+export type ToolStatsInput = z.infer<typeof ToolStatsInputSchema>;
+
+export const ToolStatsOutputSchema = z.strictObject({
+  tools: z.array(ToolStatsItemSchema),
+  generated_at: z.string(),
+  storage_scope: z.literal("local_file"),
+  stats_file: z.string(),
+  is_authoritative: z.literal(false),
+});
+export type ToolStatsOutput = z.infer<typeof ToolStatsOutputSchema>;
+
+// ---------------------------------------------------------------------------
 // 输入 / 输出 schema 注册表（供 validateInput / validateOutput 使用）
 // ---------------------------------------------------------------------------
 
-type ToolName = "aux_summarize_file" | "aux_compress_text" | "aux_review_diff" | "aux_review_diff_by_file" | "aux_compress_command_output" | "aux_report_tool_feedback";
+type ToolName = "aux_summarize_file" | "aux_compress_text" | "aux_review_diff" | "aux_review_diff_by_file" | "aux_compress_command_output" | "aux_report_tool_feedback" | "aux_tool_stats";
 
 const inputSchemas: Record<ToolName, z.ZodTypeAny> = {
   aux_summarize_file: SummarizeFileInput,
@@ -579,6 +604,7 @@ const inputSchemas: Record<ToolName, z.ZodTypeAny> = {
   aux_review_diff_by_file: ReviewDiffByFileInput,
   aux_compress_command_output: CompressCommandOutputInput,
   aux_report_tool_feedback: ToolFeedbackInputSchema,
+  aux_tool_stats: ToolStatsInputSchema,
 };
 
 const outputSchemas: Record<ToolName, z.ZodTypeAny> = {
@@ -588,6 +614,7 @@ const outputSchemas: Record<ToolName, z.ZodTypeAny> = {
   aux_review_diff_by_file: ReviewDiffByFileOutput,
   aux_compress_command_output: CompressCommandOutputOutput,
   aux_report_tool_feedback: ToolFeedbackOutputSchema,
+  aux_tool_stats: ToolStatsOutputSchema,
 };
 
 // ---------------------------------------------------------------------------
@@ -614,6 +641,7 @@ export const toolOutputJsonSchemas: Record<ToolName, Record<string, unknown>> = 
   aux_review_diff_by_file: generateJsonSchema(ReviewDiffByFileOutput),
   aux_compress_command_output: generateJsonSchema(CompressCommandOutputOutput),
   aux_report_tool_feedback: generateJsonSchema(ToolFeedbackOutputSchema),
+  aux_tool_stats: generateJsonSchema(ToolStatsOutputSchema),
 };
 
 // ---------------------------------------------------------------------------

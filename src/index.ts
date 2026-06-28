@@ -22,7 +22,13 @@ import { handleReviewDiff } from "./tools/review-diff.js";
 import { handleReviewDiffByFile } from "./tools/review-diff-by-file.js";
 import { handleCompressCommandOutput } from "./tools/compress-command-output.js";
 import { handleReportToolFeedback } from "./tools/report-tool-feedback.js";
-import { toolOutputJsonSchemas } from "./schema.js";
+import { toolOutputJsonSchemas, validateOutput } from "./schema.js";
+import {
+  runInToolContext,
+  recordToolCall,
+  getToolStatsSnapshot,
+  flushToolStats,
+} from "./tool-stats.js";
 
 const SERVER_NAME = "wingman";
 const SERVER_VERSION = (
@@ -150,6 +156,19 @@ const REPORT_TOOL_FEEDBACK_TOOL_DEFINITION = {
   outputSchema: toolOutputJsonSchemas.aux_report_tool_feedback,
 };
 
+const TOOL_STATS_TOOL_DEFINITION = {
+  name: "aux_tool_stats",
+  description:
+    "查询 Wingman MCP server 当前进程内每个工具的累计调用次数和 token 消耗统计。结果是辅助性、非权威的——统计数据仅供观测，不得作为账单或审计依据。统计持久化到本地 JSON 文件，server 重启后保留。",
+  annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  inputSchema: {
+    type: "object" as const,
+    properties: {},
+    required: [],
+  },
+  outputSchema: toolOutputJsonSchemas.aux_tool_stats,
+};
+
 // --- Server setup ---
 
 const server = new Server(
@@ -166,6 +185,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     REVIEW_DIFF_BY_FILE_TOOL_DEFINITION,
     COMPRESS_COMMAND_OUTPUT_TOOL_DEFINITION,
     REPORT_TOOL_FEEDBACK_TOOL_DEFINITION,
+    TOOL_STATS_TOOL_DEFINITION,
   ],
 }));
 
@@ -173,39 +193,60 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
   const { name, arguments: args } = request.params;
 
-  // Load config only when a tool is called (lazy init）
-  const config = hasModelConfig() ? loadConfig() : loadConfigFallback();
+  // AsyncLocalStorage 隔离并发请求的 tool 上下文，保证 token 归属正确
+  return runInToolContext(name, async () => {
+    recordToolCall(name);
 
-  let result: CallToolResult;
+    try {
+      // Load config only when a tool is called (lazy init）
+      const config = hasModelConfig() ? loadConfig() : loadConfigFallback();
 
-  switch (name) {
-    case "aux_summarize_file":
-      result = await handleSummarizeFile(args ?? {}, config);
-      break;
-    case "aux_compress_text":
-      result = await handleCompressText(args ?? {}, config);
-      break;
-    case "aux_review_diff":
-      result = await handleReviewDiff(args ?? {}, config);
-      break;
-    case "aux_review_diff_by_file":
-      result = await handleReviewDiffByFile(args ?? {}, config);
-      break;
-    case "aux_compress_command_output":
-      result = await handleCompressCommandOutput(args ?? {}, config);
-      break;
-    case "aux_report_tool_feedback":
-      result = await handleReportToolFeedback(args ?? {}, config);
-      break;
-    default:
-      result = {
-        content: [{ type: "text", text: `Unknown tool: ${name}` }],
-        isError: true,
-      };
-  }
-
-  return result;
+      switch (name) {
+        case "aux_summarize_file":
+          return await handleSummarizeFile(args ?? {}, config);
+        case "aux_compress_text":
+          return await handleCompressText(args ?? {}, config);
+        case "aux_review_diff":
+          return await handleReviewDiff(args ?? {}, config);
+        case "aux_review_diff_by_file":
+          return await handleReviewDiffByFile(args ?? {}, config);
+        case "aux_compress_command_output":
+          return await handleCompressCommandOutput(args ?? {}, config);
+        case "aux_report_tool_feedback":
+          return await handleReportToolFeedback(args ?? {}, config);
+        case "aux_tool_stats":
+          return await handleToolStats();
+        default:
+          return {
+            content: [{ type: "text", text: `Unknown tool: ${name}` }],
+            isError: true,
+          };
+      }
+    } finally {
+      // 每次工具调用后持久化统计（原子写入，不影响调用结果）
+      flushToolStats();
+    }
+  });
 });
+
+// --- aux_tool_stats handler ---
+
+async function handleToolStats(): Promise<CallToolResult> {
+  const snapshot = getToolStatsSnapshot();
+  const outputData = {
+    ...snapshot,
+    is_authoritative: false as const,
+  };
+
+  // 校验输出是否符合声明 schema
+  const outputResult = validateOutput("aux_tool_stats", outputData);
+  const finalData = outputResult.ok ? outputResult.data : outputData;
+
+  return {
+    content: [{ type: "text", text: JSON.stringify(finalData) }],
+    isError: false,
+  };
+}
 
 // --- Start ---
 

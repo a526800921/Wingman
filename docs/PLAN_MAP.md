@@ -58,6 +58,8 @@ ADR-0001 模型优先
   │   └─ review_diff 当前日期幻觉
   ├─ MCP 工具消费方反馈闭环（已完成）
   │   └─ aux_report_tool_feedback
+  ├─ MCP 工具调用与 token 统计（已完成）
+  │   └─ aux_tool_stats ✅
   ├─ 前置验证方案
   │   └─ Phase 2 P0 验证计划
   └─ Model-first 输出 schema migration
@@ -87,6 +89,7 @@ ADR-0001 模型优先
 | [command-output-response-contract-recovery](plans/command-output-response-contract-recovery.md) | 已完成 | 施工计划 | - |
 | [wingman-mcp-translatebar-report-reliability](plans/wingman-mcp-translatebar-report-reliability.md) | 已完成 | 施工计划 | command-output-response-contract-recovery |
 | [mcp-tool-feedback-loop](plans/mcp-tool-feedback-loop.md) | 已完成 | 施工计划 | wingman-mcp-translatebar-report-reliability |
+| [tool-usage-stats](plans/tool-usage-stats.md) | 已完成 | 施工计划 | - |
 | [summarize-file-model-first](plans/summarize-file-model-first.md) | 待实施 | 施工计划 | - |
 | [summarize-file-fallback-slim](plans/summarize-file-fallback-slim.md) | 已完成 | 重构 | summarize-file-model-first 的 fallback 收敛步骤 |
 | [compress-text-fixes](plans/compress-text-fixes.md) | 已完成 | 修复 | compress-text-model-first 的低代价债务清理 |
@@ -113,6 +116,7 @@ ADR-0001 模型优先
 | `docs/plans/command-output-response-contract-recovery.md` | 施工计划 | **已完成** (2026-06-20) | Round 4 阻断回归；优先于 command-output 后续优化与 parser 收缩 | `docs/command-output-response-contract-implementation-review.md` |
 | `docs/plans/wingman-mcp-translatebar-report-reliability.md` | 施工计划 | **已完成** (2026-06-28) | TranslateBar 真实报告回归门禁；约束 summarize/review 后续计划 | 本计划“完成记录” |
 | `docs/plans/mcp-tool-feedback-loop.md` | 施工计划 | **已完成** (2026-06-28) | 消费方质量反馈闭环 | 本计划“完成记录” |
+| `docs/plans/tool-usage-stats.md` | 施工计划 | **已完成** (2026-06-28) | 新增本地持久化的 MCP tool 调用次数和 token 统计查询工具 | 本计划 |
 | `docs/phase2-tools-validation-plan.md` | 验证战略 | 设计中 | P0 已拆到 `docs/phase2-validation-p0-plan.md` | 本文档 |
 | `docs/phase2-validation-p0-plan.md` | 施工计划 | 待实施 | 前置验证 P0 | 本计划 |
 | `docs/plans/summarize-file-model-first.md` | 施工计划 | 待实施 | 依赖 shared runtime、migration note；纳入 TranslateBar Swift 报告证据 | 本计划 |

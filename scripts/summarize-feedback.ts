@@ -11,7 +11,7 @@
  *
  * Options:
  *   --input <path>   Path to the JSONL feedback file (default: ~/.wingman/feedback.jsonl)
- *   --output <dir>   Output directory for the report (default: docs/feedback/)
+ *   --output <dir>   Output directory for the report (default: ~/.wingman/feedback-reports/)
  */
 
 import * as fs from "node:fs";
@@ -48,7 +48,7 @@ interface FeedbackEntry {
 function parseArgs(): { input: string; outputDir: string } {
   const args = process.argv.slice(2);
   let input = path.join(homedir(), ".wingman", "feedback.jsonl");
-  let outputDir = "docs/feedback";
+  let outputDir = path.join(homedir(), ".wingman", "feedback-reports");
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--input" && i + 1 < args.length) {
